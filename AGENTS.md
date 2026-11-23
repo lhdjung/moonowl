@@ -95,7 +95,7 @@ src/
   app/            the Viewer's halves that stand alone: menus.rs, actions.rs
                   (`perform`), listen.rs (the mailbox), toolbar.rs,
                   dialogs.rs (Details, the report window, Sign, the password), ink.rs,
-                  markup.rs, search.rs, synctex.rs, reading.rs (the
+                  markup.rs, forms.rs, search.rs, synctex.rs, reading.rs (the
                   reading line), compare.rs, disk.rs, pages.rs (writing page edits),
                   organise.rs (the organiser's Viewer half), focus.rs
                   (the keyboard and the focus after a click) — child
@@ -130,6 +130,8 @@ src/
   compare.rs      two versions compared word by word ("Compare with…")
   report.rs       a comparison saved as a PDF: both files' pages side by
                   side, marked, and every difference in words
+  forms.rs        form fields filled in through pdfium's form-fill
+                  environment
   ocr.rs          words recognised on scanned pages (Vision, or Tesseract),
                   written in as text that is not drawn
   synctex.rs      LaTeX's SyncTeX file, read both ways, the editor started,
@@ -144,7 +146,10 @@ src/
   single.rs       one process per user, over a Unix socket
   openfiles.rs dock.rs tabs.rs print.rs
                   the macOS/AppKit corners — see "Platform corners"
-  steady.rs nav.rs  small restatements of renderer/navigation upstream pieces
+  steady.rs       the renderer, with a failed frame's scene cleared, which
+                  upstream does not do
+  nav.rs          which links may open, and how (upstream keeps its own
+                  provider private)
   config.rs       the config directory and `atomic_write`
   stats.rs        counters for what a session costs
   harness.rs      the reader driven with no window and no screen
@@ -294,8 +299,8 @@ array of tables lands inside the last table. Two tests say so.
 - *In paged mode `boxes` has holes* — every page but one. The binary searches,
   current-page tracking (`page_at`) and mounting all know; read that block
   before touching relayout.
-- *Only pages near the viewport are mounted* (`OVERSCAN`), rendered
-  nearest-the-middle first.
+- *Only pages near the viewport are mounted* (`OVERSCAN`), at most
+  `MOUNTED_MOST` of them, rendered nearest-the-middle first.
 - *A page is drawn whole under `MAX_PIXELS`, and past it only what is on
   screen is sharp*: a second widget per page (`PageWidget::detail`) draws the
   visible part plus a margin at full size, as a tighter crop, over the page
@@ -311,9 +316,11 @@ nothing clips). `COLOUR_FLOOR` is where keeping colour begins, so plain type is
 identical either way. `duotone` — the flat mapping — is for links and selected
 words, which must take the theme's colour. `WHITE_POINT` (235) calls everything
 above it paper: it kills hyperref's bright cages and a scan's warm tint, at the
-cost of 4%-grey code blocks merging into the background. The constant is the
-only place to change that trade. `gpu.rs`/`*.wgsl` and `recolor.rs` must agree;
-`tests/recolor.rs` says so. "Recolour pictures too" is on by default.
+cost of 4%-grey code blocks merging into the background. The constant in
+`recolor.rs` is the only place to change that trade: `recolor::shader` and
+`recolor::regions` put it, and `COLOUR_FLOOR`, in front of the WGSL. The GPU
+and CPU paths must agree; `tests/recolor.rs` says so, and CI runs it on Linux
+on Mesa's software Vulkan. "Recolour pictures too" is on by default.
 
 **Selected words and links are painted from the page's own pixels** by the
 shader — real glyphs through the duotone ramp — never from a text layer.
@@ -327,8 +334,8 @@ crops make a continuous scroll breathe.
 pages and the thumbnail column (only its mounted band of rows) hold pixels; the search index
 holds text (`search::INDEX_BUDGET`; past it, a page with matches keeps only
 what its matches need), and the
-pages waiting for their links and notes are a queue (`ANNOTATIONS_QUEUED`).
-The thumbnails once had no accounting at all. `stats.rs` and `tests/cost.rs` are the
+pages waiting for their links and notes are a queue (`ANNOTATIONS_QUEUED`),
+and at most `ANNOTATED_KEPT` pages keep theirs. `stats.rs` and `tests/cost.rs` are the
 instruments — measure with the Pages tab open and scrolled.
 
 **A page's pixels exist once.** `PageSource::render` *lends* the pixels
@@ -343,8 +350,10 @@ for the life of the process: macOS keeps a freed block that size as dirty
 ## Windows
 
 - **Opening a document never displaces one.** `hand_over` looks for an empty
-  window (the focused one first), else makes one, claiming it immediately so
-  two simultaneous opens do not share a window. "Empty" is trusted from the
+  window (the focused one first), else makes an empty one and hands it the
+  document, which it opens on a thread as it would a dropped one. The window
+  is claimed immediately, so two simultaneous opens do not share it. Only the
+  launch opens a document on the main thread, before anything is drawn. "Empty" is trusted from the
   read handle, not the bookkeeping. If no window can be made, the document goes
   into the one that exists rather than nowhere.
 - File handle and document watch are keyed per window; news for one window is
@@ -354,12 +363,12 @@ for the life of the process: macOS keeps a freed block that size as dirty
   bottom edges). Letting the last-moved window own it drifts. Full screen
   and presenting are the launch window's too, remembered as switches; a new
   window adopts full screen from the window itself without remembering it.
-- **On macOS a window's position does not survive `show()`**: `Placements`
-  holds the target and `place` applies it right after `show`, same turn.
+- **A window is made, placed and drawn in one turn of the shell**, so
+  nothing sees it before it is where it belongs (`shell.rs`).
 - **`library.open` is one path per window; a launch reopens one** — the one read
-  or opened last (`store::reopening`), maximized. `Exiting` separates "closed by
-  the reader" (forget it) from "open at quit" (keep it), and is raised by every
-  path that ends the app. A close never writes an *empty* list, since closing
+  or opened last (`store::reopening`), maximized. `Desk::leaving` separates
+  "closed by the reader" (forget it) from "open at quit" (keep it), and is
+  raised by every path that ends the app. A close never writes an *empty* list, since closing
   the last window is how most people quit. This write goes through the
   scribe, in order, so racing closes cannot leave the stalest list.
 - **The close button and the application menu's Quit ask the window
@@ -441,8 +450,8 @@ A field is named by its place in the page's `/Annots`, its rectangle and
 its field's name (`render::Spot`), and the write finds it by the rectangle
 and the name when the place has moved, as it does when a highlight before
 it is taken out. Words being
-typed are written before the window, the file or the app goes
-(`Viewer::keeps_typed_words`).
+typed, in a field or a comment, are written before the window, the file or
+the app goes (`Viewer::keeps_typed_words`).
 "Add text here…" in a page's right-click menu opens the same field where
 the click was, and writes the words as the Sign window's typed line
 (`sign::place_text`), for a form that is only a scan or a flat page.
@@ -733,7 +742,10 @@ no GPU, no window, three platforms.
 
 - The CPU path is real code: a widget that draws through wgpu needs its
   `Software` half kept working, or screenshot tests stop covering what is seen.
-- Wait for the condition (`settle()`), never the clock. The reader's timers
+- Wait for the condition (`settle()`, or `settled()` with a question), never
+  the clock: `settle` waits for every thread the reader started and for its
+  news. Only the test with the real file watcher waits on a clock
+  (`wait_until`). The reader's timers
   count on a clock the harness stops (`emit::now`, `emit::after`), so a test
   moves it with `Reader::later` instead of sleeping.
 - **The harness lays out in one font on every platform**
@@ -749,6 +761,13 @@ no GPU, no window, three platforms.
 
 ## Platform corners
 
+- **What the app writes is private, and what it unpacks is marked.** On Unix
+  the config folder is 0700 (`single::claim`), since it holds signatures,
+  undo copies and the passages marked. A file saved out of a document, such
+  as an attachment, carries the document's download mark (macOS quarantine,
+  Windows Zone.Identifier) through `config::carry_quarantine`. A staging file
+  is always made new (`create_new`), never opened through a name already
+  there.
 - **The toolbar is the menu bar, on every platform.** There is no native menu
   bar anywhere: Open, recents, Print, Settings and the shortcut list are the
   toolbar's, and Copy is the selection popover's. macOS keeps the application
