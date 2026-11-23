@@ -496,6 +496,8 @@ impl Document {
             )));
         }
         let stamp = crate::render::stamp_of(path);
+        // Read before the lock, which a slow disk would otherwise hold.
+        let bytes = in_memory.then(|| std::fs::read(path));
         let _library = library();
         let pdfium = pdfium().map_err(crate::render::Refusal::Said)?;
         // **The one error worth telling apart from the rest**, and pdfium is
@@ -505,11 +507,11 @@ impl Document {
         // "this needs a password" or "that password was not right" — is the
         // caller's to know, because the caller is the one who did or did not
         // supply one.
-        let loaded = match in_memory {
-            true => std::fs::read(path)
+        let loaded = match bytes {
+            Some(bytes) => bytes
                 .map_err(PdfiumError::IoError)
                 .and_then(|bytes| pdfium.load_pdf_from_byte_vec(bytes, password)),
-            false => pdfium.load_pdf_from_file(path, password),
+            None => pdfium.load_pdf_from_file(path, password),
         };
         let document = loaded.map_err(|e| {
             if matches!(
