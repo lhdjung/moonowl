@@ -290,8 +290,6 @@ impl Viewer {
         if taken {
             self.stoppable = Some((Stoppable::Comparing, stop));
             self.notice = format!("Comparing with {name}…");
-        } else {
-            self.notice = self.why_refused().into();
         }
     }
 
@@ -802,8 +800,6 @@ impl Viewer {
         if taken {
             self.stoppable = Some((Stoppable::Reporting, stop));
             self.notice = saving;
-        } else {
-            self.notice = self.why_refused().into();
         }
     }
 

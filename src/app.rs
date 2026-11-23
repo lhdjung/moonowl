@@ -2480,9 +2480,6 @@ pub struct Viewer {
     /// Whether that thread reads the open document, so that a write, which
     /// lets go of the document, has to wait for it.
     making_reads: Reads,
-    /// Why the last job asked of [`Viewer::on_disk`] or
-    /// [`Viewer::on_thread`] was not started, as the reader is told.
-    refused: &'static str,
     /// The editor's request that came while that thread was busy, so that
     /// it is taken up when the thread is done.
     forward_owed: Option<u64>,
@@ -2786,7 +2783,6 @@ impl Viewer {
             shelving: None,
             making: None,
             making_reads: Reads::Nothing,
-            refused: "",
             forward_owed: None,
             said_once_open: None,
             stoppable: None,
@@ -5048,9 +5044,8 @@ impl Viewer {
         );
         // A save refused because the last is still going leaves that one
         // in flight.
-        match saving {
-            true => self.saving_theme = true,
-            false => self.notice = self.why_refused().into(),
+        if saving {
+            self.saving_theme = true;
         }
     }
 
@@ -5122,7 +5117,7 @@ impl Viewer {
         }
         let dir = self.store.themes_dir().to_path_buf();
         let path = path.to_string();
-        let taken = self.on_disk(
+        self.on_disk(
             move || {
                 let imported = std::fs::read_to_string(path)
                     .map_err(|e| e.to_string())
@@ -5137,16 +5132,13 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
     }
 
     /// The theme being worn, written where the reader chose.
     pub fn export_theme(&mut self, path: &str) {
         let theme = self.store.theme().clone();
         let path = path.to_string();
-        let taken = self.on_disk(
+        self.on_disk(
             move || {
                 theme
                     .to_toml()
@@ -5162,9 +5154,6 @@ impl Viewer {
                 };
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
     }
 
     /// Ask whether to delete `theme`, in a window of its own.
@@ -5220,7 +5209,7 @@ impl Viewer {
             return;
         }
         let dir = self.store.themes_dir().to_path_buf();
-        let taken = self.on_disk(
+        self.on_disk(
             move || {
                 let deleted = crate::theme::Theme::delete(&dir, &draft.id);
                 (draft, deleted, crate::theme::Theme::load_all(&dir))
@@ -5237,9 +5226,6 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
     }
 
     /// The themes as the directory now has them, and the chosen one worn.

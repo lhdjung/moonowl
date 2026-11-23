@@ -1213,8 +1213,8 @@ impl Viewer {
     /// Work on the themes or palettes directory, done on the scribe so it
     /// keeps its order with every other write, and `then` given the answer
     /// on this thread. One at a time: asked while one is out, this does
-    /// nothing and answers `false`, so a second press of Save cannot make a
-    /// second file.
+    /// nothing, says why, and answers `false`, so a second press of Save
+    /// cannot make a second file.
     pub(super) fn on_disk<T: Send + 'static>(
         &mut self,
         work: impl FnOnce() -> T + Send + 'static,
@@ -1242,12 +1242,6 @@ impl Viewer {
             (true, false) => Self::WRITING,
             (false, _) => Self::BUSY,
         }
-    }
-
-    /// Why the last job asked of [`Self::on_disk`] or [`Self::on_thread`]
-    /// and its kin was not started.
-    pub(super) fn why_refused(&self) -> &'static str {
-        self.refused
     }
 
     /// Said when a job waits for the job that is running, and the reader
@@ -1319,7 +1313,7 @@ impl Viewer {
         // A write lets go of the document until it lands, and a thread
         // that reads it meanwhile would find it gone. A reload keeps it.
         if self.writing.is_some() && !self.reloading {
-            self.refused = Self::WRITING;
+            self.notice = Self::WRITING.into();
             return false;
         }
         let taken = self.shelve(work, then, true);
@@ -1356,10 +1350,11 @@ impl Viewer {
         then: impl FnOnce(&mut Viewer, T) + 'static,
     ) -> bool {
         if self.writing.is_some() {
-            self.refused = match self.reloading {
+            self.notice = match self.reloading {
                 true => Self::RELOADING,
                 false => Self::WRITING,
-            };
+            }
+            .into();
             return false;
         }
         let edition = self.edition;
@@ -1388,10 +1383,11 @@ impl Viewer {
             false => &self.shelving,
         };
         if held.is_some() {
-            self.refused = match apart {
+            self.notice = match apart {
                 true => self.still_busy(),
                 false => Self::BUSY,
-            };
+            }
+            .into();
             return false;
         }
         let landing = Arc::new(Mutex::new(None));

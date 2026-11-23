@@ -438,7 +438,7 @@ impl Viewer {
             .unwrap_or_else(|| file.clone());
         let written = highlights_as(format, &title, &file, &rows);
         let count = rows.len();
-        let taken = self.on_thread_without_document(
+        self.on_thread_without_document(
             {
                 let to = to.clone();
                 move || crate::atomic_write(std::path::Path::new(&to), written.as_bytes())
@@ -456,9 +456,6 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
     }
 
     /// Put the colour popover up over the selection, or say why not.
@@ -968,9 +965,8 @@ impl Viewer {
         );
         // A save refused because the last is still going leaves that one
         // in flight.
-        match saving {
-            true => self.saving_palette = true,
-            false => self.notice = self.why_refused().into(),
+        if saving {
+            self.saving_palette = true;
         }
     }
 
@@ -1009,7 +1005,7 @@ impl Viewer {
         use crate::palettes::HighlightPalette;
         let dir = self.store.palettes_dir().to_path_buf();
         let gone = gone.clone();
-        let taken = self.on_disk(
+        self.on_disk(
             move || {
                 let deleted = HighlightPalette::delete(&dir, &gone.id);
                 (gone, deleted, HighlightPalette::load_all(&dir))
@@ -1027,9 +1023,6 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
     }
 
     /// The palettes as the folder now has them: a file saved here, in

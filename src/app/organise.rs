@@ -553,9 +553,8 @@ impl Viewer {
                 }
             },
         );
-        match self.organiser.as_mut() {
-            Some(organiser) if taken => organiser.adding = true,
-            _ => self.notice = self.why_refused().into(),
+        if let Some(organiser) = self.organiser.as_mut().filter(|_| taken) {
+            organiser.adding = true;
         }
     }
 
@@ -689,7 +688,6 @@ impl Viewer {
             if let Some(organiser) = self.organiser.as_mut() {
                 organiser.reading = false;
             }
-            self.notice = self.why_refused().into();
         }
     }
 
@@ -751,9 +749,8 @@ impl Viewer {
                 }
             },
         );
-        match self.organiser.as_mut() {
-            Some(organiser) if taken => organiser.adding = true,
-            _ => self.notice = self.why_refused().into(),
+        if let Some(organiser) = self.organiser.as_mut().filter(|_| taken) {
+            organiser.adding = true;
         }
     }
 
@@ -1014,7 +1011,6 @@ impl Viewer {
             if let Some(organiser) = self.organiser.as_mut() {
                 organiser.busy = false;
             }
-            self.notice = self.why_refused().into();
         }
     }
 
@@ -1119,7 +1115,6 @@ impl Viewer {
             if let Some(organiser) = self.organiser.as_mut() {
                 organiser.busy = false;
             }
-            self.notice = self.why_refused().into();
         }
     }
 

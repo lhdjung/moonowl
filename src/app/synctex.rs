@@ -107,6 +107,7 @@ impl Viewer {
         let shown = pdf.clone();
         // Whether the request is for this document is asked on the thread,
         // since it compares the two paths as the disk resolves them.
+        let said = self.notice.clone();
         let taken = self.on_thread_without_document(
             move || {
                 let crate::synctex::Forward { tex, line, .. } = crate::synctex::take_for(&pdf)?;
@@ -128,9 +129,10 @@ impl Viewer {
             self.forward_owed = Some(number);
             // A long job, such as recognising text, would otherwise hold the
             // line back without a word.
-            if crate::synctex::waiting_for(self.document.path()) {
-                self.notice = "The editor's line is shown once the work under way is done.".into();
-            }
+            self.notice = match crate::synctex::waiting_for(self.document.path()) {
+                true => "The editor's line is shown once the work under way is done.".into(),
+                false => said,
+            };
         }
     }
 
