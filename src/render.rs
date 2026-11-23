@@ -747,25 +747,24 @@ pub fn open(path: &str) -> Result<Arc<dyn PageSource>, Refusal> {
     open_with(path, None)
 }
 
-/// A file's length and modification time, and on Unix its inode and the
-/// time its inode last changed: enough to tell that a write into it would
-/// land in a different draft from the one on screen. The inode tells apart
-/// two drafts of one length written within one tick of a coarse clock, as
-/// FAT's two seconds are, whenever the second replaced the first.
+/// A file's length and modification time, and on Unix its inode: enough to
+/// tell that a write into it would land in a different draft from the one on
+/// screen. The inode tells apart two drafts of one length written within one
+/// tick of a coarse clock, as FAT's two seconds are, whenever the second
+/// replaced the first. The time the inode last changed is left out, because
+/// a new permission, a Finder tag or a sync client's attribute changes it
+/// while the document stays the same.
 // ponytail: on Windows, two rewrites in place of one length inside one tick
 // look the same; hash the bytes if that is ever seen.
-pub type Stamp = (u64, std::time::SystemTime, u64, i64, i64);
+pub type Stamp = (u64, std::time::SystemTime, u64);
 
 pub fn stamp_of(path: &str) -> Option<Stamp> {
     let meta = std::fs::metadata(path).ok()?;
     #[cfg(unix)]
-    let inode = {
-        use std::os::unix::fs::MetadataExt;
-        (meta.ino(), meta.ctime(), meta.ctime_nsec())
-    };
+    let inode = std::os::unix::fs::MetadataExt::ino(&meta);
     #[cfg(not(unix))]
-    let inode = (0, 0, 0);
-    Some((meta.len(), meta.modified().ok()?, inode.0, inode.1, inode.2))
+    let inode = 0;
+    Some((meta.len(), meta.modified().ok()?, inode))
 }
 
 /// The same, with the password for a document that wants one.

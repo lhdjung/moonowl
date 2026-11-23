@@ -1800,6 +1800,19 @@ fn a_draft_of_the_same_length_and_time_is_another_draft() {
     assert_ne!(after, before);
 }
 
+/// A new permission changes the file's metadata but not the draft, so a
+/// mark written afterwards is not refused.
+#[cfg(unix)]
+#[test]
+fn a_new_permission_is_the_same_draft() {
+    use std::os::unix::fs::PermissionsExt;
+    let path = scratch("same-draft");
+    let file = path.to_str().unwrap();
+    let before = render::stamp_of(file).expect("a stamp");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+    assert_eq!(render::stamp_of(file), Some(before));
+}
+
 /// **A refused "Remove all" keeps every mark.** The journal is emptied
 /// before the write, and a write that fails must not leave it empty: a mark
 /// a rebuild lost would be gone for good, with nothing to undo.
