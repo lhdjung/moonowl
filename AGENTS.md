@@ -98,7 +98,8 @@ src/
                   dialogs.rs (Details, the report window, Sign, the password), ink.rs,
                   markup.rs, search.rs, synctex.rs, reading.rs (the
                   reading line), compare.rs, disk.rs, pages.rs (writing page edits),
-                  organise.rs (the organiser's Viewer half) — child
+                  organise.rs (the organiser's Viewer half), focus.rs
+                  (the keyboard and the focus after a click) — child
                   modules, so they see the Viewer's private fields
   keymap.rs       every action, its default chords, and event → chord
   layout.rs       where each page sits, and what is on screen
