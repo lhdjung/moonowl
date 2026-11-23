@@ -887,6 +887,10 @@ pub(super) fn context_menu(
         key(Action::Print),
     );
     let leave = held.presenting || held.full_screen;
+    // With the bar away and nothing on screen to bring it back, the
+    // right-click menu is where many readers look for it.
+    let bar_away = !held.toolbar_up() && !held.presenting;
+    let key_bar = key(Action::Toolbar);
     let commentable = held.standing.into_file;
     let quoted = if over == Over::Selection {
         held.find_label()
@@ -898,8 +902,8 @@ pub(super) fn context_menu(
     // `.body`'s space, which starts under the chrome.
     let (rows, rules) = match over {
         Over::Selection => (4.0 + f64::from(u8::from(commentable)), 1.0),
-        Over::Link(_) => (10.0, 3.0),
-        Over::Page => (8.0, 2.0),
+        Over::Link(_) => (10.0 + f64::from(u8::from(bar_away)), 3.0),
+        Over::Page => (8.0 + f64::from(u8::from(bar_away)), 2.0),
     };
     let tall = rows * MENU_ROW + rules * MENU_RULE + 14.0;
     let (wide, high) = (held.window_width, held.layout.viewport.height);
@@ -1038,6 +1042,19 @@ pub(super) fn context_menu(
                     Icon { name: "fullscreen", stroke: ink.clone() }
                     span { class: "menu-label", if leave { "Exit full screen" } else { "Full screen" } }
                     span { class: "menu-key", "{key_full}" }
+                }
+                if bar_away {
+                    button {
+                        class: "menu-item",
+                        "data-item": "show-menu-bar",
+                        onclick: {
+                            let doing = doing.clone();
+                            move |_| doing(Action::Toolbar)
+                        },
+                        Icon { name: "menubar", stroke: ink.clone() }
+                        span { class: "menu-label", "Show menu bar" }
+                        span { class: "menu-key", "{key_bar}" }
+                    }
                 }
                 div { class: "menu-rule" }
                 {document_items(viewer, reveal, printer, clip, &ink, &key_mark, &key_print, Some((page, on)), &facts)}

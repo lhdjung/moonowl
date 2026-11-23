@@ -46,6 +46,29 @@ fn a_right_click_on_a_page_offers_the_way_out_of_full_screen_first() {
     assert!(reader.harness.query(".menu.context").is_none());
 }
 
+/// With the menu bar away, the right-click menu offers it back, second
+/// after the way out of full screen.
+#[test]
+fn a_right_click_with_the_bar_away_offers_it_back() {
+    let mut reader = open(&readable("bar"));
+    reader.right_click_on_page(1, (0.5, 0.3));
+    assert!(
+        !rows(&reader).contains(&"show-menu-bar".to_string()),
+        "the bar is up"
+    );
+    reader.press("Escape");
+
+    reader.press_action(moonowl::keymap::Action::Toolbar);
+    reader.right_click_on_page(1, (0.5, 0.3));
+    assert_eq!(
+        rows(&reader).get(1).map(String::as_str),
+        Some("show-menu-bar")
+    );
+    reader.click("[data-item='show-menu-bar']");
+    assert!(reader.state().toolbar, "the bar is back");
+    assert!(reader.harness.query(".menu.context").is_none());
+}
+
 #[test]
 fn escape_and_a_press_elsewhere_put_it_away() {
     let mut reader = open(&readable("away"));
