@@ -1919,8 +1919,10 @@ pub struct Viewer {
     /// answers a scroll, stays down. See [`Viewer::relaid`].
     relaid_at: f64,
     /// Where the reader is to land once the document is read again, after a
-    /// page edit whose document did not reopen moved the page they were on.
-    place_owed: Option<crate::layout::Anchor>,
+    /// page edit whose document did not reopen moved the page they were on,
+    /// with the scroll position it was owed at. A reader who has moved since
+    /// is not taken back there.
+    place_owed: Option<(crate::layout::Anchor, f64)>,
     /// The scrollbar, which is the same thing again: up while the document is
     /// moving and for [`BAR_LASTS`] after it stops.
     ///

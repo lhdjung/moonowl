@@ -516,7 +516,9 @@ impl Viewer {
         markup: Option<MarkupRead>,
         paged: Paged,
     ) -> Option<u64> {
-        let owed = self.place_owed.take();
+        let owed = (self.place_owed.take())
+            .filter(|&(_, top)| (top - self.scroll_top).abs() < 0.5)
+            .map(|(at, _)| at);
         let mut at = owed.unwrap_or_else(|| self.layout.anchor(self.scroll_top));
         // The reader stays on the page they were reading, wherever it went;
         // on a page that went, they land at the top of the page after it.
@@ -545,7 +547,7 @@ impl Viewer {
                 }
                 // So does the reader, once the document is read again.
                 if paged.moved().is_some() || owed.is_some() {
-                    self.place_owed = Some(at);
+                    self.place_owed = Some((at, self.scroll_top));
                 }
                 self.document.retake();
                 self.look_up_again(None);
