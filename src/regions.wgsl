@@ -52,7 +52,7 @@ struct Run {
 @group(0) @binding(2) var<uniform> how_many: Runs;
 @group(0) @binding(3) var<storage, read> runs: array<Run>;
 
-const WHITE_POINT: f32 = 235.0;
+// WHITE_POINT is put in front of this file by `recolor.rs`, which defines it.
 
 // The conversion every write goes through: clamp to 0..255 and round halves
 // to even. Repeated from `recolor.wgsl`

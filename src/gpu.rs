@@ -21,7 +21,7 @@ use anyrender::{RenderContext, ResourceId};
 use dioxus_native::DeviceHandle;
 
 use crate::palette::Palette;
-use crate::recolor::{End, Region, REGIONS, SHADER};
+use crate::recolor::{End, Region};
 use crate::render::Bitmap;
 
 /// One rectangle of a page painted through a ramp of its own: a link, or a line
@@ -167,7 +167,7 @@ impl Recolorer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("recolor"),
-                source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+                source: wgpu::ShaderSource::Wgsl(crate::recolor::shader().into()),
             });
         let pipeline = device
             .device
@@ -183,7 +183,7 @@ impl Recolorer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("regions"),
-                source: wgpu::ShaderSource::Wgsl(REGIONS.into()),
+                source: wgpu::ShaderSource::Wgsl(crate::recolor::regions().into()),
             });
         let regions = device
             .device

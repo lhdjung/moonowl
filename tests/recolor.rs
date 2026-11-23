@@ -12,7 +12,7 @@
 //! wants.
 
 use moonowl::gpu;
-use moonowl::recolor::{duotone_cpu, end, recolor_cpu, Region, Rgb, REGIONS, SHADER};
+use moonowl::recolor::{duotone_cpu, end, recolor_cpu, Region, Rgb};
 
 /// Moonowl Dark, near enough: light ink on a slate ground.
 const TEXT: Rgb = [0xe8, 0xe6, 0xe3];
@@ -292,7 +292,7 @@ fn run_shader(pixels: &[u8], text: Rgb, bg: Rgb, keep_colour: bool) -> Option<Ve
 
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("recolor"),
-        source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+        source: wgpu::ShaderSource::Wgsl(moonowl::recolor::shader().into()),
     });
     let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: Some("recolor"),
@@ -474,7 +474,7 @@ fn run_regions(pixels: &[u8], width: u32, height: u32, regions: &[Region]) -> Op
 
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("regions"),
-        source: wgpu::ShaderSource::Wgsl(REGIONS.into()),
+        source: wgpu::ShaderSource::Wgsl(moonowl::recolor::regions().into()),
     });
     let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: Some("regions"),

@@ -173,11 +173,26 @@ pub fn recolor_cpu(pixels: &mut [u8], text: Rgb, bg: Rgb, keep_colour: bool) {
 }
 
 /// The same thing, as a compute shader.
-pub const SHADER: &str = include_str!("recolor.wgsl");
+pub fn shader() -> String {
+    with_constants(include_str!("recolor.wgsl"))
+}
 
 /// And the second pass: the parts of a page painted through a ramp of their own
 /// — a link, a mark, a selected word. See `regions.wgsl`.
-pub const REGIONS: &str = include_str!("regions.wgsl");
+pub fn regions() -> String {
+    with_constants(include_str!("regions.wgsl"))
+}
+
+/// A shader's source with the constants above put in front of it, so that
+/// the shaders and this file cannot disagree about them.
+fn with_constants(source: &str) -> String {
+    format!(
+        "const WHITE_POINT: f32 = {WHITE_POINT}.0;\n\
+         const COLOUR_FLOOR: f32 = {COLOUR_FLOOR}.0;\n\
+         const COLOUR_FULL: f32 = {COLOUR_FULL}.0;\n\
+         {source}"
+    )
+}
 
 /* ------------------------------------------------------------------ regions */
 
