@@ -34,12 +34,28 @@ static LIBRARY: Mutex<()> = Mutex::new(());
 /// How many threads are waiting for [`LIBRARY`] through [`library`].
 static WAITING: AtomicUsize = AtomicUsize::new(0);
 
-pub(crate) fn library() -> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn library() -> Held {
     WAITING.fetch_add(1, Ordering::SeqCst);
     let held = LIBRARY.lock().unwrap_or_else(|e| e.into_inner());
     WAITING.fetch_sub(1, Ordering::SeqCst);
-    held
+    Held(Some(held))
 }
+
+/// [`LIBRARY`], held. Letting go of it wakes [`library_when_free`].
+pub(crate) struct Held(Option<std::sync::MutexGuard<'static, ()>>);
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        self.0.take();
+        // Under `FREEING`, so a thread between looking and waiting cannot
+        // miss it.
+        let _freeing = FREEING.lock().unwrap_or_else(|e| e.into_inner());
+        FREED.notify_all();
+    }
+}
+
+static FREEING: Mutex<()> = Mutex::new(());
+static FREED: std::sync::Condvar = std::sync::Condvar::new();
 
 /// [`library`] for work nobody is looking at yet: taken only while nobody
 /// else is waiting for it. Work done a page at a time on a thread, such as
@@ -48,16 +64,19 @@ pub(crate) fn library() -> std::sync::MutexGuard<'static, ()> {
 /// **The lock is not fair.** A thread loading page after page lets it go and
 /// takes it straight back before the thread woken for it runs, so a page
 /// being drawn waited behind every page a contents page links to.
-pub(crate) fn library_when_free() -> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn library_when_free() -> Held {
+    let mut freeing = FREEING.lock().unwrap_or_else(|e| e.into_inner());
     loop {
         if WAITING.load(Ordering::SeqCst) == 0 {
             match LIBRARY.try_lock() {
-                Ok(held) => return held,
-                Err(std::sync::TryLockError::Poisoned(held)) => return held.into_inner(),
+                Ok(held) => return Held(Some(held)),
+                Err(std::sync::TryLockError::Poisoned(held)) => {
+                    return Held(Some(held.into_inner()))
+                }
                 Err(std::sync::TryLockError::WouldBlock) => {}
             }
         }
-        std::thread::sleep(std::time::Duration::from_millis(1));
+        freeing = FREED.wait(freeing).unwrap_or_else(|e| e.into_inner());
     }
 }
 
@@ -1141,8 +1160,8 @@ impl PageSource for Document {
 
     fn try_text_of(&self, index: usize) -> Option<PageText> {
         let _library = match LIBRARY.try_lock() {
-            Ok(held) => held,
-            Err(std::sync::TryLockError::Poisoned(held)) => held.into_inner(),
+            Ok(held) => Held(Some(held)),
+            Err(std::sync::TryLockError::Poisoned(held)) => Held(Some(held.into_inner())),
             Err(std::sync::TryLockError::WouldBlock) => return None,
         };
         Some(self.text_held(index).unwrap_or_default())
