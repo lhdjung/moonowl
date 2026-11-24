@@ -2,10 +2,9 @@
 //! page sits in it, what colour it is before it has been drawn, and what
 //! colour the toolbar's own labels are.
 //!
-//! Grievances from reading with it, and every one is the sort of thing a test
-//! suite that asks "does it work" will never raise: a correct answer badly
-//! placed, badly coloured, unreachable, or computed against a window that had
-//! stopped being the window.
+//! Each is the sort of thing a test suite that asks "does it work" will never
+//! raise: a correct answer badly placed, badly coloured, unreachable, or
+//! computed against a window that has stopped being the window.
 
 use blitz_dom::Document as _;
 use moonowl::fixture;
@@ -61,19 +60,15 @@ fn a_page_narrower_than_the_window_stands_in_the_middle_of_it() {
 fn a_page_wider_than_the_window_is_centred_and_can_be_reached() {
     let mut reader = book();
     reader.press_action(Action::ActualSize);
-    // Five steps of the app's own ladder — 110, 125, 150, 175, 200 — which is
-    // one more than it was here until `ZOOMS` got the three rungs it had been
-    // missing. See `ZOOM_LADDER` in `main.ts`.
+    // Five steps of the zoom ladder, `ZOOMS`: 110, 125, 150, 175, 200.
     for _ in 0..5 {
         reader.press_chord("mod+=");
     }
     assert_eq!(reader.state().zoom, "200%");
 
     // Wider than the window, and hanging out of it by the same amount at
-    // both ends. **It used to hang out of the right alone**, pinned twenty
-    // pixels from the left with the rest of it off the screen and no way to
-    // scroll there: `#viewer` in the app is `overflow: auto` and `#pages` is
-    // `margin: 0 auto`, and Blitz has neither.
+    // both ends, not out of the right alone, pinned twenty pixels from the
+    // left with the rest of it off the screen and no way to scroll there.
     let (left, right) = margins(&reader);
     assert!(left < -40.0, "the page is wider than the window: {left}");
     assert!((left - right).abs() <= 1.0, "{left} against {right}");
@@ -100,14 +95,14 @@ fn a_page_wider_than_the_window_is_centred_and_can_be_reached() {
 
 #[test]
 fn a_window_that_changes_size_lays_the_document_out_again() {
-    // **The one fault behind two complaints**: the page not centred, and Fit
-    // width fitting a width the window no longer had. Blitz answers
-    // `SurfaceResized` by moving its own viewport and asking for a redraw, and
-    // tells nobody — so the chrome followed the window and `Viewer::layout`
-    // kept the viewport it was handed when the window was mounted. A window
-    // opened at 1100 and dragged to 1600 laid its pages out for 1100 inside a
-    // `.viewer` that was now 1600: the page centred in a `.pages` box narrower
-    // than the window, which is a page against the left of the screen.
+    // Blitz answers `SurfaceResized` by moving its own viewport and asking
+    // for a redraw, and tells nobody. Unless the reader is told as well, the
+    // chrome follows the window and `Viewer::layout` keeps the viewport it was
+    // handed when the window was mounted: a window opened at 1100 and dragged
+    // to 1600 would lay its pages out for 1100 inside a `.viewer` that is now
+    // 1600. The page would be centred in a `.pages` box narrower than the
+    // window, against the left of the screen, and Fit width would fit a width
+    // the window no longer has.
     //
     // See `Shell::on_resized` and `Event::WindowResized` in `app/listen.rs`, which
     // are the two halves of the wire this drives.
@@ -140,10 +135,10 @@ fn a_window_that_changes_size_lays_the_document_out_again() {
 
 #[test]
 fn the_document_is_centred_beside_an_open_panel() {
-    // One pixel, and the same fault as the resize above in miniature: the
-    // panel's hairline is a border, a content box put it outside the width the
-    // panel was given, and the document was laid out for a viewport a pixel
-    // wider than the box it was drawn into. Every page came out flush against
+    // One pixel, and the resize above in miniature: the panel's hairline is a
+    // border, and a content box would put it outside the width the panel is
+    // given, so the document would be laid out for a viewport a pixel wider
+    // than the box it is drawn into. Every page would come out flush against
     // the panel with its far edge a pixel over the window.
     let mut reader = book();
     reader.press_chord("mod+b");
@@ -163,10 +158,8 @@ fn the_document_is_centred_beside_an_open_panel() {
 
 #[test]
 fn a_menu_comes_down_under_the_button_that_opened_it() {
-    // They were one layer pinned to the ends of the bar, so the View menu —
-    // whose button sits between Trim and the theme — came down under the page
-    // field, three chips to the right of what had been clicked. Each is in an
-    // anchor of its own now; see `.anchor` in `styles.rs`.
+    // Each menu is in an anchor of its own, not in one layer pinned to the
+    // ends of the bar; see `.anchor` in `styles.rs`.
     let mut reader = book();
     reader.click(".chip.fit");
     let menu = reader.harness.layout_rect(".menu.view");
@@ -252,11 +245,11 @@ fn a_page_no_theme_is_recolouring_is_white() {
 
 #[test]
 fn the_toolbar_wears_the_theme_rather_than_a_grey() {
-    // Mark, Trim, the zoom and the two steppers are all `--muted`, and it was
-    // mixed halfway between the paper and the ink — which is a mid-grey
-    // whatever the two ends are, so all fourteen themes put very nearly the
-    // same colour in the bar. What is asserted is the distance from the
-    // theme's own ink: near it, and much nearer than the halfway shade was.
+    // Mark, Trim, the zoom and the two steppers are all `--muted`. Mixed
+    // halfway between the paper and the ink, it would be a mid-grey whatever
+    // the two ends are, so all fourteen themes would put very nearly the same
+    // colour in the bar. What is asserted is the distance from the theme's
+    // own ink: near it, and much nearer than the halfway shade would be.
     for id in [
         "moonowl-light",
         "moonowl-dark",
@@ -280,10 +273,8 @@ fn the_toolbar_wears_the_theme_rather_than_a_grey() {
 
 #[test]
 fn the_toolbar_carries_the_app_s_icons_in_the_theme_s_shades() {
-    // Every button in the app's `index.html` has a `data-icon` and none here
-    // did, which is the other half of a bar that read as grey words. The
-    // colour is asserted because it is the part that has no cascade behind it:
-    // an inline `<svg>` reaches usvg as its own document — see `Icon` — so a
+    // Every button in the bar has an icon. The colour is asserted because it
+    // is the part that has no cascade behind it: an inline `<svg>` reaches usvg as its own document — see `Icon` — so a
     // `currentColor` icon comes out black on every theme, which on Moonowl Dark
     // is invisible.
     let mut reader = wearing("moonowl-dark");
@@ -300,12 +291,8 @@ fn the_toolbar_carries_the_app_s_icons_in_the_theme_s_shades() {
         "an idle chip's icon is the quiet shade",
     );
 
-    // And a chip whose thing is in force takes the accent, icon and all. This
-    // was the Mark chip until the bar stopped having one — a mark is set once
-    // and read from the Contents panel, so a permanent button for it was a
-    // permanent button for something nobody presses twice in an hour, and the
-    // app has never had one. Contents is the same shape: a chip with an icon,
-    // a word, and an on state.
+    // And a chip whose thing is in force takes the accent, icon and all.
+    // Contents is such a chip: an icon, a word, and an on state.
     reader.press_chord("mod+b");
     assert_eq!(
         reader
@@ -387,10 +374,10 @@ fn the_page_field_opens_holding_the_page_it_is_on() {
 
     reader.press("9");
     assert_eq!(reader.state().label, "9");
-    // And the second digit lands *after* the first. It did not: writing the
-    // character in through the value attribute replaced the editor's string
-    // and left the caret at the front, so "50" was typed as "05" — which
-    // parses to page 5 and passes every test written in one digit.
+    // And the second digit lands *after* the first. Writing the character in
+    // through the value attribute would replace the editor's string and leave
+    // the caret at the front, so "50" would be typed as "05" — which parses
+    // to page 5 and passes every test written in one digit.
     reader.press("2");
     assert_eq!(reader.state().label, "92");
     reader.press("Enter");
@@ -439,18 +426,16 @@ fn the_page_field_shows_that_all_of_it_is_selected() {
 #[test]
 fn the_page_box_is_the_app_s_width_until_the_number_outgrows_it() {
     // Blitz gives parley no alignment for a text input's own text and calls
-    // `set_width(None)`, so `text-align: center` on one does nothing at all —
-    // which left the page number pinned against the left wall of a box wide
-    // enough for four digits. A box that fits is most of the answer, and the
+    // `set_width(None)`, so `text-align: center` on one does nothing at all,
+    // and a box wide enough for four digits would leave the page number
+    // pinned against its left wall. A box that fits is most of the answer, and the
     // padding under it is the rest — see the test below. See the comment on
     // `.pill` in `app.rs`.
     //
-    // **The floor is the app's 44px**, not the smallest box a digit will sit
-    // in. `.page-jump input` is `width: 44px` whatever is in it — four digits
-    // fit and one digit is centred in the same box — and a floor of
-    // twenty-eight made page 1 of any document a slot half the size of the
-    // count beside it, which is half of what "cramped" meant. So one, two and
-    // three digits are all the app's width, and only the fourth grows.
+    // **The floor is 44px**, not the smallest box a digit will sit in: a
+    // floor of twenty-eight would make page 1 of any document a slot half the
+    // size of the count beside it. So one, two and three digits are all 44px
+    // wide, and only the fourth grows.
     let mut reader = book();
     let one = reader.harness.layout_rect(".page-now").width;
     assert!((one - 44.0).abs() <= 1.0, "page 1 is the app's box: {one}");
@@ -463,9 +448,7 @@ fn the_page_box_is_the_app_s_width_until_the_number_outgrows_it() {
     );
     reader.press("Escape");
 
-    // Four does not fit in it, and grows rather than being cut off — which is
-    // the one place this parts company with the app, and only because Blitz
-    // cannot centre what is in the field.
+    // Four does not fit in it, and grows rather than being cut off.
     reader.press("p");
     reader.type_text("1250");
     let four = reader.harness.layout_rect(".page-field").width;
@@ -488,19 +471,18 @@ fn the_page_box_is_the_app_s_width_until_the_number_outgrows_it() {
 #[test]
 fn a_chip_in_force_stands_on_the_accent_rather_than_wearing_it() {
     // Every theme in this app names a near-monochrome text colour, so a bar
-    // written in a shade of it is grey whatever theme is on — and the only
-    // colour that ever appeared was the accent, arriving as one bright word
-    // among the grey with nothing under it. The tint is what carries the
+    // written in a shade of it is grey whatever theme is on, and the accent
+    // alone would arrive as one bright word among the grey with nothing under
+    // it. The tint is what carries the
     // theme. `--accent-soft` is a fifth of the way from the paper to the
     // accent: plainly the accent, and still somewhere a word can be read.
     for id in ["moonowl-light", "bay-brown", "dracula"] {
         let reader = wearing(id);
         let style = reader.harness.attr(".root", "style").unwrap_or_default();
-        // Measured against the *surface*, which is what the app mixes it from
-        // — `mix(accent, surface, 0.86)` in `applyTheme`. It was measured
-        // against the paper here, which is a different colour on a light
-        // theme (the surface is pulled more than halfway to white) and a very
-        // different one on a dark.
+        // Measured against the *surface*, which is what the accent is mixed
+        // with. The paper is a different colour on a light theme (the surface
+        // is pulled more than halfway to white) and a very different one on a
+        // dark.
         let surface = rgb(&value_of(&style, "--surface"));
         let accent = rgb(&value_of(&style, "--accent"));
         let soft = rgb(&value_of(&style, "--accent-soft"));
@@ -547,11 +529,10 @@ fn a_press_anywhere_else_puts_the_page_field_away() {
     reader.type_text("250");
     assert!(typing(&reader));
 
-    // Clicking the document abandons it and puts the current page back,
-    // which is the field's own `blur` handler in `main.ts`. Nothing else
-    // took the field down: it held the keyboard until Escape or Enter, and a
-    // reader who had clicked away from it was typing into a field they were
-    // no longer looking at.
+    // Clicking the document abandons it and puts the current page back.
+    // Otherwise the field would hold the keyboard until Escape or Enter, and
+    // a reader who had clicked away from it would be typing into a field
+    // they were no longer looking at.
     let (x, y) = reader.point_on(1, (0.5, 0.5));
     reader.click_at(x, y);
     assert!(!typing(&reader));
@@ -581,10 +562,10 @@ fn a_typed_page_can_be_corrected() {
 
 /* ------------------------------------------------- the way back to the bar */
 
-/// **With the toolbar away, the top edge stands in for it.** `#toolbar-peek`
-/// in the app: reaching for the edge drops a handle in, and pressing it puts
-/// the bar back. Until this the only way back was the key the notice names,
-/// which is a sentence that has to be read in four seconds and remembered.
+/// **With the toolbar away, the top edge stands in for it.** Reaching for the
+/// edge drops a handle in, and pressing it puts the bar back, so the way back
+/// is not only the key the notice names, which is a sentence that has to be
+/// read in four seconds and remembered.
 #[test]
 fn reaching_for_the_top_edge_gives_the_toolbar_back() {
     let mut reader = book();
@@ -645,10 +626,10 @@ fn the_zoom_notice_can_be_turned_off() {
     assert!(!notice.ends_with('%'), "asked to stay quiet: {notice:?}");
 }
 
-/// **And the handle's own place is inside the reach**, which it was not: the
-/// band was the top eight pixels and the handle sits below the strip macOS
-/// slides its title bar over, so the pointer had to be put where the handle is
-/// not in order to see it — and moving to it was moving out of the band that
+/// **And the handle's own place is inside the reach.** The handle sits below
+/// the strip macOS slides its title bar over, so with a band of only the top
+/// eight pixels the pointer would have to be put where the handle is not in
+/// order to see it — and moving to it would be moving out of the band that
 /// offered it.
 #[test]
 fn the_handle_appears_where_the_handle_is() {
@@ -686,11 +667,36 @@ fn the_handle_stays_until_the_pointer_is_well_away() {
     assert!(reader.harness.query(".toolbar-peek").is_none());
 }
 
+/// **A middle-click scroll steers; it does not reach.** Started near the top
+/// and steered upwards, the pointer crosses the band that brings the handle
+/// down, and a handle dropping in then is in the way of the gesture.
+#[test]
+fn the_handle_stays_away_during_a_middle_click_scroll() {
+    let mut reader = book();
+    reader.press_action(Action::Toolbar);
+    reader.point_to(400.0, 100.0);
+    assert!(
+        reader.harness.query(".toolbar-peek").is_some(),
+        "reached for"
+    );
+
+    reader.middle_click_at(400.0, 100.0);
+    assert!(reader.box_of(".still-anchor").is_some(), "the gesture runs");
+    assert!(
+        reader.harness.query(".toolbar-peek").is_none(),
+        "the press puts the handle away",
+    );
+    reader.point_to(400.0, 20.0);
+    assert!(
+        reader.harness.query(".toolbar-peek").is_none(),
+        "and steering upwards does not bring it back",
+    );
+}
+
 /// **And where you are, while you scroll without a bar to say so.**
-/// `#page-pill` in the app, under the same two conditions: only with the
-/// toolbar away, because with it up the same number is already on screen, and
-/// only if the reader wants it — which is now something they have to say, the
-/// setting having been turned off. See the two tests below this one.
+/// The pill shows only with the toolbar away, because with it up the same
+/// number is already on screen, and only if the reader wants it, since the
+/// setting is off by default. See the two tests below this one.
 #[test]
 fn the_page_pill_says_where_you_are_when_the_toolbar_is_away() {
     let mut reader = Reader::open_with(
@@ -754,7 +760,7 @@ fn the_pill_stays_down_through_a_zoom() {
     );
 }
 
-/// …and not at all otherwise, which is the default now: a count that appears
+/// …and not at all otherwise, which is the default: a count that appears
 /// of its own accord over the middle of the page covers the thing it is
 /// describing, and the scrollbar says the same without saying anything.
 #[test]
@@ -832,8 +838,8 @@ fn the_bar_can_be_dragged_and_says_where_it_has_got_to() {
         reader.harness.query(".page-pill").is_some(),
         "and the count is up while the hand is on the bar",
     );
-    // **And it rides the thumb.** Over the foot of the page it was covering
-    // the thing it described; beside the bar it is where the eye already is.
+    // **And it rides the thumb.** Over the foot of the page it would cover
+    // the thing it describes; beside the bar it is where the eye already is.
     let pill = reader.harness.layout_rect(".page-pill");
     let thumb = reader.harness.layout_rect(".bar-thumb");
     assert!(
@@ -902,23 +908,18 @@ fn a_document_that_fits_has_no_scrollbar() {
     assert!(reader.harness.query(".scrollbar").is_none());
 }
 
-/// **The name of what is open is readable, and it was twenty pixels wide.**
+/// **The name of what is open is readable.**
 ///
-/// `.chip.title` had `flex: 1 1 0` — a basis of nothing, asking for whatever
-/// the bar has left over, which in a bar carrying fourteen controls is nothing
-/// at all. So the document's name came out as three letters at every window
-/// size, and the wider the window the more absurd it looked. The app's own
-/// `.doc-title` is `flex: 0 1 auto`: it asks for the name and gives way under
-/// pressure, which is what `min-width: 0` and the fade are for.
+/// `.chip.title` is `flex: 0 1 auto`: it asks for the name and gives way
+/// under pressure, which is what its `min-width` and the fade are for. A basis
+/// of nothing, `flex: 1 1 0`, would ask for whatever the bar has left over,
+/// which in a bar carrying fourteen controls is nothing at all.
 #[test]
 fn the_name_of_the_document_is_wide_enough_to_read() {
-    // **In a bar with room in it**, which the harness's default 1100 is not:
-    // fourteen controls at the app's own sizes come to more than that, and
-    // the app collapses its own `.doc-title` to sixteen pixels — the two
-    // paddings, no name — at 1100 and at 1180, measured. What this is about
-    // is the basis, not the width of the window: `flex: 1 1 0` asked for
-    // nothing and was given nothing at *every* size, so the name was three
-    // letters on a display of any width.
+    // **In a bar with room in it**, which the harness's default 1100 is not.
+    // What this is about is the basis, not the width of the window:
+    // `flex: 1 1 0` would ask for nothing and be given nothing at *every*
+    // size.
     let reader = Reader::open_with(
         &Reader::book(),
         Options {
@@ -931,19 +932,18 @@ fn the_name_of_the_document_is_wide_enough_to_read() {
         title.width > 50.0,
         "there is room for a file name in it: {title:?}",
     );
-    // And it still gives way rather than pushing the bar over: `max-width` is
-    // the app's 34ch, and the fixture's name is far shorter than that.
+    // And it still gives way rather than pushing the bar over: the fixture's
+    // name is far shorter than its `max-width`.
     assert!(title.width < 200.0, "{title:?}");
     assert_eq!(reader.state().title, "book.pdf");
 
     // …and it is the side that gives way, which is the other half of the
-    // app's rule: squeeze the bar and the name goes rather than the bar
+    // rule: squeeze the bar and the name goes rather than the bar
     // overflowing or the page controls being pushed off the middle.
     //
     // Just above the last of the bar's `@media` steps, which is the only
-    // place left where it has to: since issue 3 the chips lose their words at
-    // 1200px, and the room that makes is the name's at every width down to
-    // here. At 1100, where this used to look, it is no longer squeezed at all.
+    // place left where it has to: the chips lose their words at 1200px, and
+    // the room that makes is the name's at every width down to here.
     let narrow = Reader::open_with(
         &Reader::book(),
         Options {
@@ -969,7 +969,7 @@ fn the_name_of_the_document_is_wide_enough_to_read() {
 /// Blitz has no `text-overflow: ellipsis`, so the name's box fades over its
 /// last sixteen pixels, which are padding: a name that fits ends before them,
 /// and a name the bar squeezes runs on into them. Deciding it by the length
-/// of the name missed every name a narrow bar cut short.
+/// of the name would miss every name a narrow bar cuts short.
 #[test]
 fn a_name_that_fits_is_not_faded_and_one_that_does_not_is() {
     let natural = Reader::open_with(
@@ -1021,22 +1021,19 @@ fn a_name_that_fits_is_not_faded_and_one_that_does_not_is() {
     );
 }
 
-/// The page count reads the way the app's does — `of 400`, not `/ 400`. It is
-/// `#page-count` in `index.html` and it is one string, which is exactly the
-/// kind of thing that drifts when an interface is written from memory.
+/// The page count reads `of 400`, not `/ 400`.
 #[test]
 fn the_page_count_is_said_the_way_the_app_says_it() {
     let reader = book();
     assert_eq!(reader.harness.text_content(".of").trim(), "of 400");
 }
 
-/// **The name of the document overhung the two buttons to its left, and took
-/// their presses.** With `flex: 1 1 0` the chip was twenty pixels wide and its
-/// label was laid out from a negative offset — which is why it read "ool"
-/// rather than "book" — so the text node's box covered Close and Open. The
-/// anchor around it is positioned, and a positioned element is hit-tested
-/// ahead of its in-flow siblings, so hovering Open highlighted the document's
-/// name and pressing Close opened its menu.
+/// **The name of the document does not overhang the two buttons to its left,
+/// or take their presses.** The anchor around it is positioned, and a
+/// positioned element is hit-tested ahead of its in-flow siblings. A chip
+/// squeezed to twenty pixels, with its label laid out from a negative offset,
+/// would cover Close and Open with the text node's box: hovering Open would
+/// highlight the document's name, and pressing Close would open its menu.
 #[test]
 fn each_button_in_the_bar_answers_for_itself() {
     let reader = book();
@@ -1069,8 +1066,8 @@ fn each_button_in_the_bar_answers_for_itself() {
 
 /// A press that slides a little is still a press. Blitz turns a two-pixel
 /// movement with the button down into a text selection and then declines to
-/// dispatch the click — so every button in this window answered about one
-/// press in three. See `blitz-button-select.md`.
+/// dispatch the click, which would make a button answer about one press in
+/// three. See `plans/blitz-button-select.md`.
 #[test]
 fn a_press_that_slides_a_little_is_still_a_press() {
     let mut reader = book();
@@ -1080,9 +1077,8 @@ fn a_press_that_slides_a_little_is_still_a_press() {
 
 /// **The cross on Close reddens under the pointer, and nothing else does.**
 ///
-/// `#close-doc:hover svg` in the app's `styles.css` gives the cross
-/// `--negative` and leaves the label the bar's own hover colour, so the warning
-/// sits on the one glyph that means *close* rather than on the whole button.
+/// Hovering gives the cross `--negative` and leaves the label the bar's own
+/// hover colour, so the warning sits on the one glyph that means *close* rather than on the whole button.
 /// An icon's `stroke` is an attribute and never the cascade, so both crosses
 /// are drawn and `:hover` shows one — read here off which of them has a width.
 #[test]
@@ -1106,9 +1102,8 @@ fn the_cross_on_close_reddens_under_the_pointer() {
         "the cross did not change under the pointer"
     );
 
-    // The theme's own negative, resolved the way `paint.rs` resolves a shipped
-    // theme — `themes.ts`'s `RED_DARK`, since the reader opens on Moonowl Light
-    // unless it is told otherwise.
+    // The theme's own negative, as Moonowl Light resolves it, since the reader
+    // opens on Moonowl Light unless it is told otherwise.
     let parsed: theme::Theme = toml::from_str(theme::BUILT_IN[shipped(theme::DEFAULT_LIGHT)].1)
         .expect("Moonowl Light parses");
     let red = moonowl::palette::resolve(&parsed, false).negative();
@@ -1193,8 +1188,8 @@ fn the_cross_on_a_recent_document_reddens_under_the_pointer() {
 ///
 /// The floor holds page 1 in a box wide enough for three, so there are
 /// twenty-odd pixels of slack in it and Blitz lays the run out from the leading
-/// edge — the number the go-to-page key had just selected jumped to the left
-/// wall of its own field the moment the readout became one. The slack is split
+/// edge, so the number the go-to-page key has just selected would jump to the
+/// left wall of its own field the moment the readout became one. The slack is split
 /// and paid as left padding, which is the one half of centring Blitz does
 /// honour.
 #[test]
@@ -1239,8 +1234,7 @@ fn the_number_stays_in_the_middle_of_a_box_wider_than_it() {
 /// There is nowhere to put the cursor with the bar away, so the shortcut brings
 /// it in itself rather than making the reader do that first — and gives it back
 /// when the jump is made or abandoned, because it borrowed the bar without
-/// changing the setting. `focusPageNumber` in `main.ts` and the `blur` handler
-/// that undoes it.
+/// changing the setting.
 #[test]
 fn the_go_to_page_key_brings_a_hidden_toolbar_in_and_puts_it_back() {
     let mut reader = book();
@@ -1362,18 +1356,21 @@ fn the_rotations_are_in_the_toolbar() {
     assert_eq!(reader.state().notice, "The pages are upright.");
 }
 
-/// Issue 3: a window made narrower ran the left of the bar on under the page
-/// controls, and "Open…" could be pressed through the down arrow. At every
-/// width a window can have, nothing in the bar stands on anything else and
+/// At every width a window can have, every control in the bar is there,
+/// folded to its symbol, nothing in the bar stands on anything else, and
 /// nothing hangs off the end of it.
 #[test]
 fn the_toolbar_never_overlaps_itself_however_narrow_the_window() {
     let mut reader = book();
-    for width in [
-        1400u32, 1210, 1190, 1120, 1100, 1000, 730, 710, 610, 590, 480,
-    ] {
+    let controls = ".toolbar button, .toolbar input";
+    let all = reader.harness.query_all(controls).len();
+    for width in [1400u32, 1210, 1190, 1120, 1100, 1000, 730, 710, 610, 600] {
         reader.resize(width, 800);
         reader.settle();
+        let shown = (reader.harness.query_all(controls).into_iter())
+            .filter(|&node| reader.harness.layout_rect_of(node).width > 0.0)
+            .count();
+        assert_eq!(shown, all, "every control is there at {width}px");
         let centre = reader.box_of(".bar-center").expect("page controls");
         let right = reader.box_of(".bar-right").expect("the right of the bar");
         for chip in [
@@ -1400,8 +1397,6 @@ fn the_toolbar_never_overlaps_itself_however_narrow_the_window() {
             "the bar runs off a {width}px window"
         );
     }
-    // The way to open a document is never one of the things that goes.
-    assert!(reader.box_of(".chip.open").is_some_and(|b| b.2 > 0.0));
 }
 
 /// **In a window too narrow for the document's name, the button folds to
@@ -1412,7 +1407,7 @@ fn the_documents_name_folds_to_a_symbol() {
     let shown = |reader: &Reader, part: &str| reader.box_of(part).is_some_and(|b| b.2 > 0.0);
     assert!(shown(&reader, ".chip.title .title-name"));
     assert!(shown(&reader, ".chip.title .title-icon"));
-    reader.resize(590, 800);
+    reader.resize(700, 800);
     reader.settle();
     assert!(!shown(&reader, ".chip.title .title-name"));
     assert!(shown(&reader, ".chip.title .title-icon"));
@@ -1422,7 +1417,8 @@ fn the_documents_name_folds_to_a_symbol() {
 
 /// **The start screen's bar keeps its words** until the window is too
 /// narrow for them: it holds five chips, where a document's holds a dozen,
-/// and folding them at a document's width left a wide bar of bare symbols.
+/// and folding them at a document's width would leave a wide bar of bare
+/// symbols.
 #[test]
 fn the_start_screens_bar_keeps_its_words_while_they_fit() {
     let mut reader = Reader::empty(Options::default());
@@ -1458,8 +1454,8 @@ fn the_start_screens_bar_keeps_its_words_while_they_fit() {
 }
 
 /// **The bar coming and going does not move the words.** The page field
-/// borrows the toolbar when it is away, and the page jumped 47px down under
-/// the reader's eyes while they typed a number.
+/// borrows the toolbar when it is away, and the page must not jump down
+/// under the reader's eyes while they type a number.
 #[test]
 fn the_page_stays_put_when_the_bar_is_borrowed() {
     let mut reader = book();
@@ -1475,9 +1471,9 @@ fn the_page_stays_put_when_the_bar_is_borrowed() {
 }
 
 /// **Labels with no icon take a new theme's ink at once.** Bare text in a
-/// button is laid out in an anonymous box, and Blitz styled that box once,
-/// when it was built: "of 425", the zoom readout and the document's name
-/// stayed in the last theme's colour until something touched them.
+/// button is laid out in an anonymous box. If Blitz styled that box only
+/// once, when it was built, "of 425", the zoom readout and the document's
+/// name would stay in the last theme's colour until something touched them.
 #[test]
 fn bare_labels_take_a_new_themes_ink() {
     let mut reader = Reader::open_with(&moonowl::fixture::offprint_pdf(), Options::default());
@@ -1512,9 +1508,8 @@ fn bare_labels_take_a_new_themes_ink() {
 }
 
 /// **A notice said again keeps its own four seconds.** The timer of the
-/// first "Nothing to undo." found the same words on the line after a second
-/// one and cleared it at once — on a slow run, the end of a test that said it
-/// twice. Only the timer armed last clears the line.
+/// first "Nothing to undo." does not clear the same words said a second
+/// time: only the timer armed last clears the line.
 #[test]
 fn an_earlier_notice_timer_leaves_a_later_notice_alone() {
     use moonowl::emit::{Event, News};

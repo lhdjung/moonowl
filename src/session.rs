@@ -37,6 +37,12 @@ use crate::shell::{Remote, WindowSpec};
 use crate::windows::{Desk, Handover};
 use crate::{palette, render, store};
 
+/// The smallest a window may be at a UI scale of 1: the narrowest the
+/// toolbar still fits in. See the `@media` steps above `.chip` in
+/// `styles.rs`. At a larger UI scale the toolbar is wider, so the shell
+/// scales this with it (`Shell::pin_ui_scale`).
+pub const SMALLEST: (f64, f64) = (600.0, 320.0);
+
 /// Everything a window needs that is the *process's* rather than its own.
 pub struct Session {
     pub desk: Desk,
@@ -61,7 +67,10 @@ pub struct Session {
 }
 
 impl Session {
-    /// A window on this document, or an empty one saying why it would not open.
+    /// A window on this document, or an empty one saying why it would not
+    /// open. Only for the launch, before the shell draws anything: it opens
+    /// the document on the thread that calls it. A document handed over
+    /// later goes through [`Self::hand_over`].
     ///
     /// The claim on the document happens here, before the window exists,
     /// because two files arriving in the same instant must not
@@ -154,9 +163,7 @@ impl Session {
         let attributes = WindowAttributes::default()
             .with_title(called)
             .with_surface_size(LogicalSize::new(self.size.0, self.size.1))
-            // The narrowest the toolbar still fits in; see the `@media` steps
-            // above `.chip` in `styles.rs`.
-            .with_min_surface_size(LogicalSize::new(480.0, 320.0))
+            .with_min_surface_size(LogicalSize::new(SMALLEST.0, SMALLEST.1))
             .with_maximized(self.maximized);
         // On Wayland the dock finds a window's launcher by its app ID, which
         // has to be the name of the .desktop file the packages install,
@@ -253,10 +260,19 @@ impl Session {
                 self.remote.show(&label);
                 None
             }
-            // A tab of the window in front unless the reader asked for
-            // windows. Read off the disk, because this is no window and holds
-            // no `Store`.
-            Handover::Spawn => self.window(path).map(|spec| {
+            // An empty window, claimed for the document at once, which it
+            // then opens on a thread as it would a document dropped on it.
+            // Opening it here would hold pdfium's lock on the thread that
+            // draws every window. A tab of the window in front unless the
+            // reader asked for windows: read off the disk, because this is
+            // no window and holds no `Store`.
+            Handover::Spawn => self.empty_window().map(|spec| {
+                self.desk.set(&spec.label, Some(path));
+                set_open(&self.dir, self.desk.open());
+                self.exchange.post(crate::emit::News {
+                    event: crate::emit::Event::HandedOver(path.to_string()),
+                    target: Some(spec.label.clone()),
+                });
                 let tabs = crate::settings::load(&self.dir)
                     .get("open_in_tabs")
                     .and_then(serde_json::Value::as_bool)

@@ -90,14 +90,7 @@ pub(super) async fn listen(
                     pointer.show(false);
                 } else {
                     resting.waiting.set(true);
-                    crate::emit::after(
-                        rests - still_for,
-                        post.clone(),
-                        crate::emit::News {
-                            event: Event::CursorTimeout,
-                            target: None,
-                        },
-                    );
+                    crate::emit::after(rests - still_for, post.clone(), Event::CursorTimeout);
                 }
             }
             // One step of the stationary scroll, and the next one armed — a
@@ -119,14 +112,7 @@ pub(super) async fn listen(
                 {
                     viewer.write().drift(across, down);
                 }
-                crate::emit::after(
-                    STILL_TICK,
-                    post.clone(),
-                    crate::emit::News {
-                        event: Event::StillTick(token),
-                        target: None,
-                    },
-                );
+                crate::emit::after(STILL_TICK, post.clone(), Event::StillTick(token));
             }
             // A sweep held at the edge of the document. The roll ends itself
             // when the pointer comes back in or lets go.
@@ -138,25 +124,11 @@ pub(super) async fn listen(
                     continue;
                 };
                 viewer.write().roll(down);
-                crate::emit::after(
-                    STILL_TICK,
-                    post.clone(),
-                    crate::emit::News {
-                        event: Event::SweepTick(token),
-                        target: None,
-                    },
-                );
+                crate::emit::after(STILL_TICK, post.clone(), Event::SweepTick(token));
             }
             Event::SheetTick(token) => {
                 if viewer.write().roll_sheets(token) {
-                    crate::emit::after(
-                        STILL_TICK,
-                        post.clone(),
-                        crate::emit::News {
-                            event: Event::SheetTick(token),
-                            target: None,
-                        },
-                    );
+                    crate::emit::after(STILL_TICK, post.clone(), Event::SheetTick(token));
                 }
             }
             // The fingers stopped moving. See [`Viewer::settle_zoom`].

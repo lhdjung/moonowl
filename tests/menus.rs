@@ -1,9 +1,7 @@
-//! The toolbar's menus, and the door they opened.
+//! The toolbar's menus, and the door they open.
 //!
-//! Two of the four things a reader looking at this experiment beside the app
-//! notices first: there are no dropdown menus, and there is no way to open
-//! another document. They are one piece of work — the picker is a menu item
-//! before it is anything else — and this is what says so.
+//! The menus and opening another document are one piece of work: the picker
+//! is a menu item before it is anything else.
 //!
 //! What is *not* here is anything about the picker itself. `Pick` is a
 //! context holding one closure for the reason `Clip` is one: the real answer
@@ -21,9 +19,8 @@ fn reader() -> Reader {
     // document's *name*, and the name is on `.bar-left` — the side that gives
     // way. At 1100 there is no bar left to give it: it is squeezed to its
     // floor and, on a machine whose `ui-sans-serif` is wider than SF Pro,
-    // outside its own group, where Blitz does not hit-test it. 1280 is the
-    // width the app's own inventory was taken at, and there is room in it on
-    // all three platforms.
+    // outside its own group, where Blitz does not hit-test it. At 1280 there
+    // is room for it on all three platforms.
     Reader::open_with(
         &fixture::contents_pdf(),
         Options {
@@ -116,15 +113,11 @@ fn a_menu_opens_and_closes() {
 /// **A menu and the find bar are never both up**, so Escape has one thing to
 /// close and closes it.
 ///
-/// This used to assert the other thing — that Escape takes the menu first and
-/// leaves the bar — and it was testing a state the app cannot reach. `wire()`
-/// in `main.ts` wraps every control in the bar that opens something of its own
-/// in `opens(…)`, which closes the search on the way, and its reason is worth
-/// keeping: two panels claiming the same corner of the screen, one of them
-/// still holding the keyboard, is not a place anybody meant to be. `show_menu`
-/// does the same for all five menus at once. The ordering in `dismiss` is
-/// still menu-before-bar and still right; there is simply nothing left that
-/// can put a reader in front of both.
+/// Every control in the bar that opens something of its own closes the
+/// search on the way: two panels claiming the same corner of the screen, one
+/// of them still holding the keyboard, is not a place anybody meant to be.
+/// `show_menu` does this for all five menus at once. `dismiss` closes a menu
+/// before the bar, but nothing can put a reader in front of both.
 #[test]
 fn opening_a_menu_puts_the_find_bar_away_and_escape_closes_the_menu() {
     let mut reader = reader();
@@ -175,8 +168,8 @@ fn the_theme_menu_is_the_whole_list() {
     reader.click_nth(".menu.theme .menu-item", professional);
     assert_eq!(reader.state().theme, "Professional");
     // **And the menu stays.** A theme is something you try on, so the tick
-    // moves and the list is still there — `showThemeMenu` in `main.ts` puts
-    // the menu away only for the items that take you somewhere else.
+    // moves and the list is still there. The menu goes away only for the
+    // items that take you somewhere else.
     assert_eq!(reader.state().menu.as_deref(), Some("theme"));
     reader.press("Escape");
     assert_eq!(reader.state().menu, None);
@@ -275,8 +268,8 @@ fn the_zoom_menu_offers_a_number_and_the_presets() {
 }
 
 /// **A number typed into the zoom field is applied when it is typed out.**
-/// Live, "150" passed through 1 and 15 — each clamped to 25% and each a
-/// relayout of the document, at four times the pages.
+/// Applied as it is typed, "150" would pass through 1 and 15, each clamped
+/// to 25% and each a relayout of the document, at four times the pages.
 #[test]
 fn the_zoom_field_waits_for_the_whole_number() {
     let mut reader = reader();
@@ -304,8 +297,8 @@ fn the_zoom_menu_opens_with_its_number_ready_to_type_over() {
 }
 
 /// **A typed number is confirmed before the next press does anything.** The
-/// field's blur came after the click, so a typed zoom followed by "Fit width"
-/// ended at the typed zoom.
+/// field's blur comes after the click, so otherwise a typed zoom followed by
+/// "Fit width" would end at the typed zoom.
 #[test]
 fn a_typed_zoom_gives_way_to_the_press_after_it() {
     let mut reader = reader();
@@ -328,8 +321,7 @@ fn a_step_after_a_typed_zoom_starts_from_it() {
 
 /// **A menu item says which key asks for the same thing, and it reads that
 /// off the keymap.** A hand-written chord beside a menu item cannot show a
-/// rebound one, which is the drift the app's Keyboard page was rewritten to
-/// stop — see `Viewer::chord_for`.
+/// rebound one. See `Viewer::chord_for`.
 #[test]
 fn a_menu_item_shows_the_key_that_is_actually_bound() {
     let mut reader = Reader::open_with(
@@ -341,7 +333,7 @@ fn a_menu_item_shows_the_key_that_is_actually_bound() {
             ..Options::default()
         },
     );
-    // Open is a menu of its own now, beside the document's rather than
+    // Open is a menu of its own, beside the document's rather than
     // inside it — see `Menu::Open`. The first key in it is Open's, which is
     // the item that was rebound.
     reader.click(".chip.open");
@@ -402,8 +394,8 @@ fn a_cancelled_picker_changes_nothing() {
 }
 
 /// The same picker, the other door: a window of its own, and this one left
-/// exactly as it was. This is the app's "Open document in new window…", which
-/// is a menu item there and not a key — so it is a menu item here too.
+/// exactly as it was. This is "Open document in new window…", which is a
+/// menu item and not a key.
 #[test]
 fn open_in_a_new_window_leaves_this_one_alone() {
     let second = fixture::titled_pdf("Beside It");
@@ -498,13 +490,10 @@ fn the_information_window_says_a_certified_documents_details_cannot_change() {
     );
 }
 
-/// Escape closes the Information window, which it did not.
+/// Escape closes the Information window.
 ///
 /// The note window and this one are the same kind of thing in the same place
-/// — a window over the reader, read once and dismissed — and `Action::Dismiss`
-/// worked outward through the menus, the popovers, Settings and the note and
-/// then stepped straight over this one. So a reader who opened it with the
-/// pointer had to close it with the pointer, in an app where Escape closes
+/// — a window over the reader, read once and dismissed — and Escape closes
 /// everything else that floats.
 #[test]
 fn escape_closes_the_information_window() {
@@ -525,12 +514,10 @@ fn escape_closes_the_information_window() {
 /// **The Information window fits what is in it, and its values are ranged
 /// right.**
 ///
-/// Both are `ui.field` under `.window[data-size="tall"]` in the app, and this
-/// window had neither: it kept `.window`'s fixed 600px height, so a paper with
-/// four facts came up in a frame with a hand's breadth of nothing under the
-/// last of them, and its rows were a two-column grid with the value ranged left
-/// after a label in a third of the width. A column of right-ranged values has
-/// an edge to read down; a column of left-ranged ones does not.
+/// With `.window`'s fixed 600px height, a paper with four facts would come up
+/// in a frame with a hand's breadth of nothing under the last of them. A
+/// column of right-ranged values has an edge to read down; a column of
+/// left-ranged ones does not.
 #[test]
 fn the_information_window_fits_its_rows_and_ranges_them_right() {
     let mut reader = reader();
@@ -607,6 +594,30 @@ fn the_details_typed_in_the_information_window_go_into_the_document() {
     );
 }
 
+/// Details whose write is refused are still in the Information window.
+#[test]
+fn details_refused_are_still_in_the_information_window() {
+    let dir = std::env::temp_dir().join(format!("moonowl-details-refused-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("paper.pdf");
+    std::fs::copy(fixture::titled_pdf("An old title"), &path).expect("a copy");
+    let mut reader = Reader::open_with(&path.to_string_lossy(), Options::default());
+    reader.click(".chip.title");
+    reader.click("[data-item='information']");
+    reader.click("[data-detail='1']");
+    reader.type_text("A Reader");
+    // Rewritten by something else, which the reader has not heard of yet.
+    std::fs::copy(fixture::titled_pdf("A title from elsewhere"), &path).expect("a copy");
+    reader.click(".details-save");
+    reader.settle();
+    let notice = reader.state().notice;
+    assert!(
+        notice.contains("Your words are still in the window."),
+        "{notice}"
+    );
+    assert_eq!(reader.field("[data-detail='1']"), "A Reader");
+}
+
 /// **Every theme, all on screen at once, where the window has room.** The
 /// menu is as tall as the window less the toolbar and a margin, and the list
 /// of themes is cut short only when the actions under it would otherwise not
@@ -665,8 +676,8 @@ fn a_settings_row_keeps_its_label_and_its_note_each_on_one_line() {
 }
 
 /// **"Recolour pictures too" reaches the pages**, not only the setting: the
-/// pages paint from the shared palette, and nothing handed it the new one
-/// until the theme next changed.
+/// pages paint from the shared palette, which has to be handed the new one
+/// at once rather than when the theme next changes.
 #[test]
 fn recolouring_pictures_reaches_the_pages() {
     // Not on Moonowl Light, which leaves pages alone and so has no switch.
@@ -698,7 +709,7 @@ fn recolouring_pictures_reaches_the_pages() {
 }
 
 /// **A switch's words flip it**, in a menu and in Settings: the switch alone
-/// was a 34×20 target beside a sentence that did nothing.
+/// would be a 34×20 target beside a sentence that does nothing.
 #[test]
 fn the_words_beside_a_switch_flip_it() {
     let mut reader = reader();

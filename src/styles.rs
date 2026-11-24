@@ -172,7 +172,7 @@ body { margin: 0;
      and the click never happens. A browser does not have this
      problem because its user-agent stylesheet says `user-select: none` for a
      button; Blitz's does not, so the rule is said here for the whole window.
-     See `blitz-button-select.md`. */
+     See `plans/blitz-button-select.md`. */
   user-select: none;
   /* **And the window itself does not scroll.** A wheel with nowhere to go
      chains outward in Blitz — a pane that cannot move sideways hands the
@@ -258,15 +258,13 @@ textarea { font-family: inherit; }
 .bar-right { flex: 1 0 0; justify-content: flex-end; }
 
 /* **A bar narrower than what it holds loses its words before anything
-   overlaps.** `.bar-left` gives way down to nothing, and its chips do not,
-   so without these steps they would run on under the page controls. Three
-   steps, each at the width
-   where the step before stops fitting: the words go and the symbols stay,
-   then the two rotations and the way to close go, which the keyboard still
-   has, and last the panel, search and the name. What is left needs 450px,
-   and `session.rs` does not let a window get narrower than 480. Before all
-   of that, the left group's words go first: the document's name is what
-   gives way, and with them on it would be cut short at 1300px. */
+   overlaps, and never a control.** `.bar-left` gives way down to nothing,
+   and its chips do not, so without these steps they would run on under the
+   page controls. The left group's words go first, since the document's
+   name is what gives way, and with them on it would be cut short at
+   1300px. Then every chip's words go, and at last the name's, with the
+   chips drawn closer together. Every control then fits in 590px, and
+   `session.rs` does not let a window get narrower than 600. */
 @media (max-width: 1400px) {
   .toolbar:not(.empty) .bar-left .chip-label { display: none; }
   .toolbar:not(.empty) .bar-left .chip:not(.title) { padding: 0 7px; }
@@ -282,11 +280,8 @@ textarea { font-family: inherit; }
   .toolbar.empty .chip { padding: 0 7px; }
 }
 @media (max-width: 720px) {
-  .toolbar .rotate-left, .toolbar .rotate-right, .toolbar .close-doc { display: none; }
-}
-@media (max-width: 600px) {
-  .toolbar { gap: 6px; }
-  .toolbar .contents, .toolbar .chip.find { display: none; }
+  .toolbar, .toolbar .bar-group { gap: 2px; }
+  .toolbar:not(.empty) .chip { padding: 0 5px; }
   /* The document's name folds to its symbol and the arrow, as the other
      buttons fold to their symbols. */
   .toolbar .title-name { display: none; }
@@ -442,7 +437,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* **The note goes under the label, not beside it**: a column, and the row's
    one flexible box. Side by side the two would share the line, and each would
    wrap in a menu wide enough for both on one. The label keeps its own class
-   so the parity test reads the label and not the sentence under it. */
+   so that a test can read the label without the sentence under it. */
 .menu-row-text { display: flex; flex-direction: column; gap: 1px; flex: 1 1 auto; min-width: 0; }
 .menu-row-label { color: var(--text); }
 /* "Save pages", the pages typed, and the button that asks where they go. */
@@ -645,7 +640,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .chip.icon-only { width: 30px; padding: 0; justify-content: center; }
 
 /* A match, as a rectangle over the page. Behind the ink rather than over it:
-   `mix-blend-mode` is out (see `AGENTS.md`, and Blitz has none), and an
+   Blitz has no `mix-blend-mode`, and an
    opaque box over a word hides the word. Blitz composites the widget's
    texture and this on top of it, so the alpha is what keeps the type
    readable — 0.38 is where a highlight is plainly there on paper and does not
@@ -747,9 +742,11 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* The button that turns the previews off, at the strip's end. */
 .glance-off {
   display: flex; align-items: center; justify-content: center; flex: none;
-  width: 24px; height: 24px; padding: 0; border-radius: 6px;
+  gap: 5px; height: 24px; padding: 0 7px; border-radius: 6px;
   border: 0; background: transparent;
+  color: var(--muted); font-size: 12.5px; white-space: nowrap;
 }
+.glance-off:hover { color: var(--text); }
 .glance-off:hover { background: var(--surface); }
 .glance-off:not(:hover) > .icon.hot, .glance-off:hover > .icon.rest { display: none; }
 .note-spot:hover { background: var(--accent-soft); }
@@ -1172,13 +1169,20 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* The area being boxed, while the pointer is down and while its colours are
    offered. */
 .area-box { border: 1.5px dashed var(--accent); pointer-events: none; }
-/* More colours, Don't show and Close are icons alone, each with a title. The
-   close turns red under the pointer, as every other close does. */
+/* More colours and Close are icons alone, each with a title, and the button
+   that turns the menu off has its label beside its icon. The close turns red
+   under the pointer, as every other close does. */
 .markup-more, .markup-hide, .markup-close {
   display: flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px;
   background: transparent;
 }
+/* The switch carries its word as well as its eye. */
+.markup-hide {
+  width: auto; gap: 5px; padding: 0 8px;
+  color: var(--muted); font-size: 12.5px; white-space: nowrap;
+}
+.markup-hide:hover { color: var(--text); }
 .markup-more:hover, .markup-hide:hover, .markup-close:hover { background: var(--hover); }
 .markup-hide:not(:hover) > .icon.hot, .markup-hide:hover > .icon.rest,
 .markup-close:not(:hover) > .icon.hot, .markup-close:hover > .icon.rest { display: none; }
@@ -1606,10 +1610,10 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   padding-right: 10px;
   pointer-events: none;
 }
-/* Dressed as `.notice` is, for `.notice`'s reason. */
+/* Dressed as `.notice` is, since it too is made of the toolbar. */
 .toolbar-peek {
   display: flex; align-items: center; gap: 6px;
-  white-space: pre-line; text-align: left;
+  white-space: nowrap;
   padding: 6px 12px; border: 1px solid var(--bar-line); border-radius: 9px;
   background: var(--paper); box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   color: var(--muted); font-size: 13.5px;
@@ -1900,7 +1904,7 @@ button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
    at any other origin measures the press from the wrong corner, and a
    signature begun on a hint in the middle of the pad would be measured from
    the middle. `pointer-events: none` says the same thing a second way, so
-   that a change to the layout cannot bring the fault back. */
+   that a change to the layout cannot undo it. */
 .sign-pad-hint {
   position: absolute; inset: 0; display: flex;
   align-items: center; justify-content: center;

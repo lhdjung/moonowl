@@ -1,11 +1,10 @@
 //! The notes a document already carries, made readable.
 //!
-//! `renderNotes` in `viewer.ts` and `showNote` in `main.ts`, ported: pdfium
-//! paints an annotation's own appearance into the page, so a sticky note
-//! arrives as the little icon it was drawn as and a comment arrives
-//! highlighted — and the words behind either of them live in the annotation,
-//! where nothing here was reading them. The icon sat there looking like a
-//! button and was not one.
+//! pdfium paints an annotation's own appearance into the page, so a sticky
+//! note arrives as the little icon it was drawn as and a comment arrives
+//! highlighted. The words behind either of them live in the annotation, and
+//! the reader reads them from there. The icon looks like a button, and it
+//! is one.
 
 use moonowl::fixture;
 use moonowl::harness::{Options, Reader};

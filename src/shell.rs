@@ -56,12 +56,10 @@ pub struct WindowSpec {
     /// Where the window should be, applied *after* it is created as well as
     /// through the attributes.
     ///
-    /// The app this is a spike for has a comment about exactly this: on macOS
-    /// a window given a position by the builder is moved onto the launch
-    /// window's frame when it is shown, so every window lands on top of every
-    /// other. `Placements` in `lib.rs` puts it back. Whether winit has the
-    /// same fault is one of the questions this spike answers, so the position
-    /// is set twice and the second time is reported.
+    /// On macOS a window given a position by the builder can be moved onto
+    /// the launch window's frame when it is shown, so every window would land
+    /// on top of every other. The position is therefore set twice, and the
+    /// second time is reported.
     pub position: Option<Position>,
     /// Whether this window is to join the front one's tab group rather than
     /// stand beside it. macOS only, and asked for rather than inferred — see
@@ -351,9 +349,9 @@ pub struct Shell {
     /// keyboard**, which is the password window and nothing else so far: every
     /// other field in this reader is opened by a key or a click, and both of
     /// those already hand the focus back afterwards. A window made *asking*
-    /// for a password has had no event at all, so the field it exists for sat
-    /// there unfocused until the reader touched something. Once per window
-    /// rather than once per frame, because the query below walks the document
+    /// for a password has had no event at all, so the field it exists for
+    /// would sit there unfocused until the reader touched something. Once per
+    /// window rather than once per frame, because the query below walks the document
     /// and a scroll is the one path in this app that must not grow work.
     painted: std::collections::HashSet<WindowId>,
     /// The interface scale each window asked for. **Blitz zooms the viewport
@@ -411,6 +409,13 @@ impl Shell {
         if let Some(view) = self.inner.windows.get_mut(&id) {
             if view.doc.inner().viewport().zoom() != scale {
                 view.doc.inner_mut().viewport_mut().set_zoom(scale);
+                // The media queries measure the window in scaled pixels, so
+                // the toolbar needs a window as much wider as the scale is.
+                let (width, height) = crate::session::SMALLEST;
+                view.window.set_min_surface_size(Some(
+                    winit::dpi::LogicalSize::new(width * scale as f64, height * scale as f64)
+                        .into(),
+                ));
                 view.request_redraw();
             }
         }
@@ -509,10 +514,10 @@ impl Shell {
     }
 
     /// **Backspace is a question the window has to have asked to be told the
-    /// answer to**, and nothing in this app had asked it.
+    /// answer to**.
     ///
-    /// See [`ApplicationHandlerExtMacOS`] below for the first half. What
-    /// forwarding the callback did not fix is that **winit only reads a
+    /// See [`ApplicationHandlerExtMacOS`] below for the first half. Forwarding
+    /// the callback is not enough on its own, because **winit only reads a
     /// keystroke against the standard key bindings when IME is enabled on the
     /// window**: `key_down` calls `interpretKeyEvents` inside `if
     /// ime_capabilities.is_some()`, and that is the only thing that ever calls
@@ -623,8 +628,8 @@ impl Shell {
     /// asks the same question of the corners rather than of the window.
     ///
     /// The one that had it last, because with the app in the background none
-    /// has it, and "any" was the order of a hash map: a document opened from
-    /// the Finder joined whichever window's tabs came up first.
+    /// has it, and "any" is the order of a hash map: a document opened from
+    /// the Finder would join whichever window's tabs came up first.
     #[cfg(target_os = "macos")]
     fn front(&self) -> Option<std::sync::Arc<dyn winit::window::Window>> {
         self.front_view()
@@ -650,8 +655,8 @@ impl Shell {
             let scale = view.window.scale_factor();
             let at = view.window.outer_position().ok()?.to_logical::<f64>(scale);
             // The *surface* size, because that is what a window can be asked
-            // to be — and the outer height less the step gave a surface that,
-            // with its title bar back on top, was exactly the height it was.
+            // to be. The outer height less the step would give a surface
+            // that, with its title bar back on top, is as tall as before.
             let size = view.window.surface_size().to_logical::<f64>(scale);
             Some((at.x, at.y, size.width, size.height))
         };
@@ -685,11 +690,10 @@ impl Shell {
             spec.vdom,
             DocumentConfig {
                 navigation_provider: Some(crate::nav::provider()),
-                // Without this, `dangerous_inner_html` silently does nothing —
-                // which is how every icon in the chrome spike came out blank
-                // the first time. `dioxus_native::launch` passes it behind its
-                // `html` feature; a shell that makes its own windows has to
-                // pass it too.
+                // Without this, `dangerous_inner_html` silently does nothing,
+                // and every icon comes out blank. `dioxus_native::launch`
+                // passes it behind its `html` feature; a shell that makes its
+                // own windows has to pass it too.
                 html_parser_provider: Some(std::sync::Arc::new(blitz_html::HtmlProvider)),
                 ..Default::default()
             },
@@ -828,10 +832,8 @@ impl Shell {
         // `windows::cascade` and the argument for it is there; what is here
         // is that the shell is the only thing that knows where the windows
         // actually are, and it knows *now* rather than when the spec was
-        // made. In the app this is a `Placements` map applied after the
-        // window is shown, because showing it on macOS moves it onto the
-        // launch window's frame — here the window is made, placed and drawn
-        // in one turn and nothing is seen in between.
+        // made. Here the window is made, placed and drawn in one turn, so
+        // nothing is seen in between.
         // …unless it is a tab, which has no frame of its own to place: the
         // window it joins owns the frame and the cascade would be a window
         // stepping off itself. Only macOS has tabs; elsewhere a "tab" is a
@@ -919,7 +921,7 @@ impl winit::platform::macos::ApplicationHandlerExtMacOS for Shell {
 /// **An arrow is a key on a Mac, and a command as well.** AppKit sends
 /// `moveLeft:` for ← *and* winit delivers the keystroke, and `blitz-dom` acts
 /// on both — its arrow and forward-delete arms have no `cfg`, unlike
-/// Backspace's — so the caret went two characters for every press. These are
+/// Backspace's — so the caret would go two characters for every press. These are
 /// the commands the keystroke has already carried out, for the same key with
 /// the same modifiers; everything else (⌥← as a word, Backspace) is AppKit's.
 pub fn keystroke_did(command: &str) -> bool {
@@ -941,8 +943,8 @@ pub fn keystroke_did(command: &str) -> bool {
 /// **⌥← on a Mac is a command and then a keystroke, in that order.** AppKit
 /// sends `moveWordLeft:` first — winit queues it ahead of the key — and
 /// `blitz-dom`'s arrow arm, which reads ⌘ as its word modifier and ignores
-/// Option, then moved the caret one character more: over the space the word
-/// had stopped at. The keystroke still goes to the page, for the keymap; what
+/// Option, then moves the caret one character more: over the space the word
+/// has stopped at. The keystroke still goes to the page, for the keymap; what
 /// it does to the caret is taken back with [`put_caret`].
 pub fn caret(doc: &mut blitz_dom::BaseDocument) -> Option<(blitz_dom::NodeId, usize, usize)> {
     let id = doc.get_focussed_node_id()?;
@@ -1339,19 +1341,19 @@ impl ApplicationHandler for Shell {
         // in the window renderer's map: the next frame draws an image whose
         // override belongs to a renderer that no longer exists, which Vello
         // reports as "tried to draw an invalid empty image ... maybe it was
-        // registered to a different renderer", a panic three frames into
-        // every run. So the first call is the one that resumes; after it, a new window
-        // resumes itself in `open`.
+        // registered to a different renderer", a panic. So the first call
+        // is the one that resumes; after it, a new window resumes itself in
+        // `open`.
         if let Some(spec) = self.launch.take().and_then(|launch| launch()) {
             self.windows.queue.borrow_mut().push(spec);
         }
         self.drain(event_loop);
         if !self.started {
-            // **⌘N is a window, and macOS had been making it a tab.**
+            // **⌘N is a window, where macOS would make it a tab.**
             // `allowsAutomaticWindowTabbing` is on by default, and Apple's own
             // default for *Prefer tabs when opening documents* is "In Full
             // Screen" — so a reader in full screen who asked for a second
-            // window got a second tab, with no way to ask for the other
+            // window would get a second tab, with no way to ask for the other
             // thing. Off, a tab is something asked for by name and nothing
             // else; explicit tabbing goes on working, which is what `tabs.rs`
             // uses. The call has to be made from inside the loop because that
@@ -1402,7 +1404,7 @@ impl ApplicationHandler for Shell {
         self.handle(event_loop, window_id, event);
     }
 
-    /// Blitz's events arrive on a channel now and the proxy only says "there
+    /// Blitz's events arrive on a channel and the proxy only says "there
     /// is something on it", so the shell drains the same queue the
     /// application would and takes its own three events out of it.
     fn proxy_wake_up(&mut self, event_loop: &dyn ActiveEventLoop) {

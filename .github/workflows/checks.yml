@@ -2,9 +2,11 @@
 # that CI and a release run exactly the same one. A release that skips them is
 # a release nobody checked, and a second copy here would be a copy that drifts.
 #
-# Nothing in it needs a GPU, a screen or a compositor: the reader builds a
+# Nothing in it needs a screen or a compositor: the reader builds a
 # `DioxusDocument`, resolves style and layout against a stated viewport, and
-# draws pages through pdfium into `ImageData` on the CPU. What it cannot cover
+# draws pages through pdfium into `ImageData` on the CPU. The one GPU it needs
+# is for comparing the shaders with the CPU, and on Linux that is Mesa's
+# Vulkan in software, installed below. What it cannot cover
 # is the window — the shell, the cascade, full screen, the Dock menu, the
 # socket; `src/windows.rs` is what makes that a small hole.
 
@@ -70,6 +72,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libfontconfig1-dev fonts-dejavu-core
+
+      # Mesa's software Vulkan, so that the shader that recolours pages runs
+      # here and is compared with `recolor.rs`. Without a GPU the comparison
+      # is skipped; `MOONOWL_NEEDS_GPU` makes that a failure instead.
+      - name: A GPU in software
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get install -y mesa-vulkan-drivers
+          echo "MOONOWL_NEEDS_GPU=1" >> "$GITHUB_ENV"
 
       # No step writes `Reader::book()`. The 400-page fixture is written by
       # `fixture::book_pdf` on first use, which is the rule the rest of the

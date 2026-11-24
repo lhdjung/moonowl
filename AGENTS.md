@@ -13,7 +13,7 @@ The UI is clean and sleek. It is close to full-screen by default. In particular,
 
 Page progression is continuous scrolling by default, and it's a strong default: it changes only when the user chooses another mode in a menu or in Settings, never through a shortcut, because continuous scrolling is so much better than the alternatives, and hitting such a keybind by accident would be frustrating.
 
-There is no clutter in the UI. All elements are nice, modern, polished, and look straight out of professional web design. However, they should not have the typical vibe coded look, i.e., small caps (or caps in general), italics, exotic fonts, and a kind of dead, technical, sterile look. One exception: the start screen's hint, "Or drop a PDF here", is italic. On the contrary, the look should be friendly and open; fresh and lively but in a subtle way.
+There is no clutter in the UI. All elements are nice, modern, polished, and look straight out of professional web design. However, they should not have the typical vibe coded look, i.e., small caps (or caps in general), italics, exotic fonts, and a kind of dead, technical, sterile look. Two exceptions: the start screen's hint, "Or drop a PDF here", is italic, and the decorative title, which is off by default, is set in the capitals of Cinzel Decorative. On the contrary, the look should be friendly and open; fresh and lively but in a subtle way.
 
 UI elements might include symbols but they are definitely not just symbols, and not just tiny symbols. For each element, a combination of one symbol and one succinct text label would probably be good. When the window is too narrow for the labels, the toolbar's controls fold down to their symbols alone; that is intended.
 
@@ -56,8 +56,7 @@ Ignoring some settings, we have:
 
 Everything above is the brief. What follows is the app as it stands: the rules
 and the traps, not the history. `plans/dormant/experiments/PROGRESS.md` is the
-record of the port from the retired Tauri/TypeScript/pdf.js app. Only the
-parity tests and the harness still refer to it.
+record of the port from the retired Tauri/TypeScript/pdf.js app.
 
 ## Shape
 
@@ -96,10 +95,12 @@ src/
   app/            the Viewer's halves that stand alone: menus.rs, actions.rs
                   (`perform`), listen.rs (the mailbox), toolbar.rs,
                   dialogs.rs (Details, the report window, Sign, the password), ink.rs,
-                  markup.rs, search.rs, synctex.rs, reading.rs (the
+                  markup.rs, forms.rs, search.rs, synctex.rs, reading.rs (the
                   reading line), compare.rs, disk.rs, pages.rs (writing page edits),
-                  organise.rs (the organiser's Viewer half) — child
+                  organise.rs (the organiser's Viewer half), focus.rs
+                  (the keyboard and the focus after a click) — child
                   modules, so they see the Viewer's private fields
+  launch.rs       what the command line asks for
   keymap.rs       every action, its default chords, and event → chord
   layout.rs       where each page sits, and what is on screen
   page.rs         the page widget: pdfium into a texture, or into ImageData
@@ -129,6 +130,8 @@ src/
   compare.rs      two versions compared word by word ("Compare with…")
   report.rs       a comparison saved as a PDF: both files' pages side by
                   side, marked, and every difference in words
+  forms.rs        form fields filled in through pdfium's form-fill
+                  environment
   ocr.rs          words recognised on scanned pages (Vision, or Tesseract),
                   written in as text that is not drawn
   synctex.rs      LaTeX's SyncTeX file, read both ways, the editor started,
@@ -143,7 +146,10 @@ src/
   single.rs       one process per user, over a Unix socket
   openfiles.rs dock.rs tabs.rs print.rs
                   the macOS/AppKit corners — see "Platform corners"
-  steady.rs nav.rs  small restatements of renderer/navigation upstream pieces
+  steady.rs       the renderer, with a failed frame's scene cleared, which
+                  upstream does not do
+  nav.rs          which links may open, and how (upstream keeps its own
+                  provider private)
   config.rs       the config directory and `atomic_write`
   stats.rs        counters for what a session costs
   harness.rs      the reader driven with no window and no screen
@@ -160,7 +166,6 @@ icons/            generated from the two SVGs by scripts/icons.sh; never edited
 build.rs          the shipped theme and palette tables, generated from
                   themes/ and palettes/ and checked
 tests/            `cargo test`; one test file per thing the reader does
-  parity/         what the retired app's interface measured, frozen as the spec
 examples/         `fixture.rs` from the command line — packaging's smoke document
 plans/            the tour (ARCHITECTURE.md), the assessments, reviews, todo,
                   and the roadmap of features not yet built
@@ -188,12 +193,14 @@ said once as `Event::DiskRefused`.
 **Settings are written a group at a time.** A write changes only the keys it
 names and leaves unknown keys alone; the defaults table in `settings.rs` is
 also the whitelist. Changes are queued and flushed together (a theme comes with
-its light/dark slot, a zoom with its fit mode); continuously moving values like
+its light/dark slot); continuously moving values like
 zoom wait 700ms (the scribe's `SETTLE`). Anything queued is flushed before the window goes.
 No setting writes another: a theme chosen against the system while following
-it holds until the system next switches, and a spread too wide for a fixed
-zoom is fitted for the moment — the zoom is not written, only that the fit is
-the pair's (`spread_fitted`), so the next launch fits it again.
+it holds until the system next switches; a zoom over a page Settings fits
+is for the moment, and only the zoom is written, so the next window fits the
+page again; and a spread too wide for a fixed zoom is fitted for the moment —
+the zoom is not written, only that the fit is the pair's (`spread_fitted`), so
+the next launch fits it again.
 
 **Themes are files.** The built-ins are rewritten into the user's themes
 directory on every run: embedded copies are authoritative, a built-in edited in
@@ -292,8 +299,8 @@ array of tables lands inside the last table. Two tests say so.
 - *In paged mode `boxes` has holes* — every page but one. The binary searches,
   current-page tracking (`page_at`) and mounting all know; read that block
   before touching relayout.
-- *Only pages near the viewport are mounted* (`OVERSCAN`), rendered
-  nearest-the-middle first.
+- *Only pages near the viewport are mounted* (`OVERSCAN`), at most
+  `MOUNTED_MOST` of them, rendered nearest-the-middle first.
 - *A page is drawn whole under `MAX_PIXELS`, and past it only what is on
   screen is sharp*: a second widget per page (`PageWidget::detail`) draws the
   visible part plus a margin at full size, as a tighter crop, over the page
@@ -309,9 +316,11 @@ nothing clips). `COLOUR_FLOOR` is where keeping colour begins, so plain type is
 identical either way. `duotone` — the flat mapping — is for links and selected
 words, which must take the theme's colour. `WHITE_POINT` (235) calls everything
 above it paper: it kills hyperref's bright cages and a scan's warm tint, at the
-cost of 4%-grey code blocks merging into the background. The constant is the
-only place to change that trade. `gpu.rs`/`*.wgsl` and `recolor.rs` must agree;
-`tests/recolor.rs` says so. "Recolour pictures too" is on by default.
+cost of 4%-grey code blocks merging into the background. The constant in
+`recolor.rs` is the only place to change that trade: `recolor::shader` and
+`recolor::regions` put it, and `COLOUR_FLOOR`, in front of the WGSL. The GPU
+and CPU paths must agree; `tests/recolor.rs` says so, and CI runs it on Linux
+on Mesa's software Vulkan. "Recolour pictures too" is on by default.
 
 **Selected words and links are painted from the page's own pixels** by the
 shader — real glyphs through the duotone ramp — never from a text layer.
@@ -325,8 +334,8 @@ crops make a continuous scroll breathe.
 pages and the thumbnail column (only its mounted band of rows) hold pixels; the search index
 holds text (`search::INDEX_BUDGET`; past it, a page with matches keeps only
 what its matches need), and the
-pages waiting for their links and notes are a queue (`ANNOTATIONS_QUEUED`).
-The thumbnails once had no accounting at all. `stats.rs` and `tests/cost.rs` are the
+pages waiting for their links and notes are a queue (`ANNOTATIONS_QUEUED`),
+and at most `ANNOTATED_KEPT` pages keep theirs. `stats.rs` and `tests/cost.rs` are the
 instruments — measure with the Pages tab open and scrolled.
 
 **A page's pixels exist once.** `PageSource::render` *lends* the pixels
@@ -341,8 +350,10 @@ for the life of the process: macOS keeps a freed block that size as dirty
 ## Windows
 
 - **Opening a document never displaces one.** `hand_over` looks for an empty
-  window (the focused one first), else makes one, claiming it immediately so
-  two simultaneous opens do not share a window. "Empty" is trusted from the
+  window (the focused one first), else makes an empty one and hands it the
+  document, which it opens on a thread as it would a dropped one. The window
+  is claimed immediately, so two simultaneous opens do not share it. Only the
+  launch opens a document on the main thread, before anything is drawn. "Empty" is trusted from the
   read handle, not the bookkeeping. If no window can be made, the document goes
   into the one that exists rather than nowhere.
 - File handle and document watch are keyed per window; news for one window is
@@ -352,12 +363,12 @@ for the life of the process: macOS keeps a freed block that size as dirty
   bottom edges). Letting the last-moved window own it drifts. Full screen
   and presenting are the launch window's too, remembered as switches; a new
   window adopts full screen from the window itself without remembering it.
-- **On macOS a window's position does not survive `show()`**: `Placements`
-  holds the target and `place` applies it right after `show`, same turn.
+- **A window is made, placed and drawn in one turn of the shell**, so
+  nothing sees it before it is where it belongs (`shell.rs`).
 - **`library.open` is one path per window; a launch reopens one** — the one read
-  or opened last (`store::reopening`), maximized. `Exiting` separates "closed by
-  the reader" (forget it) from "open at quit" (keep it), and is raised by every
-  path that ends the app. A close never writes an *empty* list, since closing
+  or opened last (`store::reopening`), maximized. `Desk::leaving` separates
+  "closed by the reader" (forget it) from "open at quit" (keep it), and is
+  raised by every path that ends the app. A close never writes an *empty* list, since closing
   the last window is how most people quit. This write goes through the
   scribe, in order, so racing closes cannot leave the stalest list.
 - **The close button and the application menu's Quit ask the window
@@ -439,8 +450,8 @@ A field is named by its place in the page's `/Annots`, its rectangle and
 its field's name (`render::Spot`), and the write finds it by the rectangle
 and the name when the place has moved, as it does when a highlight before
 it is taken out. Words being
-typed are written before the window, the file or the app goes
-(`Viewer::keeps_typed_words`).
+typed, in a field or a comment, are written before the window, the file or
+the app goes (`Viewer::keeps_typed_words`).
 "Add text here…" in a page's right-click menu opens the same field where
 the click was, and writes the words as the Sign window's typed line
 (`sign::place_text`), for a form that is only a scan or a flat page.
@@ -731,17 +742,18 @@ no GPU, no window, three platforms.
 
 - The CPU path is real code: a widget that draws through wgpu needs its
   `Software` half kept working, or screenshot tests stop covering what is seen.
-- Wait for the condition (`settle()`), never the clock. The reader's timers
+- Wait for the condition (`settle()`, or `settled()` with a question), never
+  the clock: `settle` waits for every thread the reader started and for its
+  news. Only the test with the real file watcher waits on a clock
+  (`wait_until`). The reader's timers
   count on a clock the harness stops (`emit::now`, `emit::after`), so a test
   moves it with `Reader::later` instead of sleeping.
 - **The harness lays out in one font on every platform**
   (`tests/fonts/DejaVuSans.ttf`, no system fonts), because SF Pro, DejaVu and
   Segoe UI set the same words 10% apart and every width tuned on a Mac then
   failed on Windows. `Options::system_font` opts out, and only
-  `tests/parity.rs` and `tests/tracking.rs` do, on macOS:
-  `tests/parity/app-inventory.json` is a *macOS* measurement (SF Pro), and off
-  macOS its allowances are proportional. `tests/tracking.rs` pins one width as
-  a number — if that fails on one platform, the font is not pinned there.
+  `tests/tracking.rs` does, on macOS: it pins one width as a number, so if it
+  fails on one platform, the font is not pinned there.
 - The suite cannot cover the window itself — shell, cascade, full screen, Dock,
   socket. `windows.rs` states those rules in one place so the testable part is.
 - Reading with the app is still the only instrument for answers that are
@@ -749,6 +761,13 @@ no GPU, no window, three platforms.
 
 ## Platform corners
 
+- **What the app writes is private, and what it unpacks is marked.** On Unix
+  the config folder is 0700 (`single::claim`), since it holds signatures,
+  undo copies and the passages marked. An attachment saved out of a document
+  carries the document's download mark (macOS quarantine, Windows
+  Zone.Identifier) through `config::carry_quarantine`, since it can be any
+  kind of file. A staging file, and the copy a fill in place sets aside, is
+  always made new (`create_new`), never opened through a name already there.
 - **The toolbar is the menu bar, on every platform.** There is no native menu
   bar anywhere: Open, recents, Print, Settings and the shortcut list are the
   toolbar's, and Copy is the selection popover's. macOS keeps the application

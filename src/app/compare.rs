@@ -86,8 +86,15 @@ fn open_to_compare(
 ) -> Result<Arc<dyn crate::render::PageSource>, String> {
     // ponytail: a file chosen in a dialog is never asked for its password;
     // a prompt of its own would let a locked file be chosen there too.
-    let opened = crate::pdfium::Document::open_in_memory(path, password)
-        .map(|document| Arc::new(document) as Arc<dyn crate::render::PageSource>);
+    // On Windows a file held open cannot be replaced, so there the file is
+    // read into memory, and a highlight written meanwhile does not wait.
+    // Elsewhere pdfium reads from the disk as it needs to, since a whole
+    // book read into memory stays with the process on macOS once freed.
+    let opened = match cfg!(windows) {
+        true => crate::pdfium::Document::open_in_memory(path, password),
+        false => crate::pdfium::Document::open_with(path, password),
+    };
+    let opened = opened.map(|document| Arc::new(document) as Arc<dyn crate::render::PageSource>);
     opened.map_err(|refused| match refused {
         crate::render::Refusal::Locked => format!(
             "{} is locked with a password. Open it, then compare it from there \
@@ -283,8 +290,6 @@ impl Viewer {
         if taken {
             self.stoppable = Some((Stoppable::Comparing, stop));
             self.notice = format!("Comparing with {name}…");
-        } else {
-            self.notice = self.why_refused().into();
         }
     }
 
@@ -756,20 +761,33 @@ impl Viewer {
                     if stopped() {
                         return Err(REPORT_STOPPED.to_string());
                     }
-                    crate::report::save(crate::report::Asked {
+                    let saved = crate::report::save(crate::report::Asked {
                         there,
                         here,
                         changes,
                         colours,
-                        to,
-                    })
+                        to: to.clone(),
+                    })?;
+                    // The save itself cannot be stopped, so a report saved
+                    // after Stop is taken away again, as the menu promised.
+                    // It is done here, so that it is done even when the
+                    // window that asked has closed.
+                    if stopped() {
+                        let _ = std::fs::remove_file(&to);
+                        return Err(REPORT_STOPPED.to_string());
+                    }
+                    Ok(saved)
                 }
             },
             move |viewer, saved| match saved {
-                // The save itself cannot be stopped, so a report saved after
-                // Stop is taken away again, as the menu promised.
+                // Stop came after the thread had looked, so the report is
+                // taken away here, off the window's thread.
                 Ok(_) if stopped.load(std::sync::atomic::Ordering::Relaxed) => {
-                    std::thread::spawn(move || std::fs::remove_file(&to));
+                    let working = crate::stats::Writing::begin();
+                    std::thread::spawn(move || {
+                        let _ = std::fs::remove_file(&to);
+                        drop(working);
+                    });
                     viewer.notice = REPORT_STOPPED.into();
                 }
                 // The report opens as a document from outside does: in a
@@ -795,8 +813,6 @@ impl Viewer {
         if taken {
             self.stoppable = Some((Stoppable::Reporting, stop));
             self.notice = saving;
-        } else {
-            self.notice = self.why_refused().into();
         }
     }
 

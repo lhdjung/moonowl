@@ -233,7 +233,7 @@ impl Viewer {
         work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
         done: impl FnOnce(&mut Viewer, Result<(), String>) + 'static,
     ) {
-        let before = crate::markup::Before::make();
+        let before = crate::markup::Before::make(self.store.dir());
         let keeping = before.keeper();
         // Undo takes a page edit back: each page goes back to where it was.
         let edited = match &paging {
@@ -370,8 +370,8 @@ impl Viewer {
         let path = self.document.path().to_string();
         let password = self.document.password().map(str::to_string);
         let before = self.document.clone();
-        let landing = Arc::new(Mutex::new(None));
-        self.writing = Some((Arc::clone(&landing), Box::new(done)));
+        let landing = Landing::new();
+        self.writing = Some((landing.clone(), Box::new(done)));
         self.reloading = !ours;
         let (watching, window, post) = (
             self.watching.clone(),
@@ -445,12 +445,8 @@ impl Viewer {
                     Paged::Unknown,
                 )
             });
-            *landing.lock().unwrap_or_else(|e| e.into_inner()) =
-                Some((written, left, reopened, markup, paged));
-            post.send(crate::emit::News {
-                event: Event::DocumentWritten,
-                target: None,
-            });
+            let landed = (written, left, reopened, markup, paged);
+            landing.land(landed, &post, Event::DocumentWritten);
         });
     }
 
@@ -463,8 +459,7 @@ impl Viewer {
     /// Answers the token of the scan it restarted, as `document_changed` does.
     pub fn landed(&mut self) -> Option<u64> {
         let (landing, _) = self.writing.as_ref()?;
-        let (written, left, reopened, markup, paged) =
-            landing.lock().unwrap_or_else(|e| e.into_inner()).take()?;
+        let (written, left, reopened, markup, paged) = landing.take()?;
         let (_, done) = self.writing.take()?;
         self.left = reopened.is_err().then_some(left).flatten();
         // A document that did not reopen after a write of the reader's own
@@ -516,7 +511,12 @@ impl Viewer {
         markup: Option<MarkupRead>,
         paged: Paged,
     ) -> Option<u64> {
-        let owed = self.place_owed.take();
+        // A zoom, a resize or the toolbar moves the scroll position but
+        // keeps the page in view, so only a page turned lets the place lapse.
+        let shown = self.layout.anchor(self.scroll_top).page;
+        let owed = (self.place_owed.take())
+            .filter(|&(_, page)| page == shown)
+            .map(|(at, _)| at);
         let mut at = owed.unwrap_or_else(|| self.layout.anchor(self.scroll_top));
         // The reader stays on the page they were reading, wherever it went;
         // on a page that went, they land at the top of the page after it.
@@ -545,7 +545,7 @@ impl Viewer {
                 }
                 // So does the reader, once the document is read again.
                 if paged.moved().is_some() || owed.is_some() {
-                    self.place_owed = Some(at);
+                    self.place_owed = Some((at, shown));
                 }
                 self.document.retake();
                 self.look_up_again(None);
@@ -855,8 +855,8 @@ impl Viewer {
             }
             return;
         }
-        let landing = Arc::new(Mutex::new(None));
-        self.opening = Some(Arc::clone(&landing));
+        let landing = Landing::new();
+        self.opening = Some(landing.clone());
         // An empty window that is opening a document is showing it, as far
         // as the desk is concerned, as one asking for a password is. Down
         // as empty, it is where the desk sends the next document handed
@@ -873,15 +873,13 @@ impl Viewer {
         std::thread::spawn(move || {
             let _working = working;
             let opened = crate::render::open_with(&path, password.as_deref());
-            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(Opened {
+            let with_password = password.is_some();
+            let answer = Opened {
                 path,
-                with_password: password.is_some(),
+                with_password,
                 opened,
-            });
-            post.send(crate::emit::News {
-                event: Event::DocumentOpened,
-                target: None,
-            });
+            };
+            landing.land(answer, &post, Event::DocumentOpened);
         });
     }
 
@@ -902,7 +900,7 @@ impl Viewer {
             path,
             with_password,
             opened,
-        }) = landing.lock().unwrap_or_else(|e| e.into_inner()).take()
+        }) = landing.take()
         else {
             // The news of an earlier open, whose result this one replaced.
             self.opening = Some(landing);
@@ -1153,6 +1151,9 @@ impl Viewer {
         self.fields_owed.clear();
         self.fields_locked.clear();
         self.place_owed = None;
+        // A source looked up in the document put down is not this one's.
+        self.source_reading = None;
+        self.source_owed = None;
         // The report window goes with the comparison, or it would stay open
         // out of sight and hold the keyboard.
         self.stop_comparing();
@@ -1208,8 +1209,8 @@ impl Viewer {
     /// Work on the themes or palettes directory, done on the scribe so it
     /// keeps its order with every other write, and `then` given the answer
     /// on this thread. One at a time: asked while one is out, this does
-    /// nothing and answers `false`, so a second press of Save cannot make a
-    /// second file.
+    /// nothing, says why, and answers `false`, so a second press of Save
+    /// cannot make a second file.
     pub(super) fn on_disk<T: Send + 'static>(
         &mut self,
         work: impl FnOnce() -> T + Send + 'static,
@@ -1237,12 +1238,6 @@ impl Viewer {
             (true, false) => Self::WRITING,
             (false, _) => Self::BUSY,
         }
-    }
-
-    /// Why the last job asked of [`Self::on_disk`] or [`Self::on_thread`]
-    /// and its kin was not started.
-    pub(super) fn why_refused(&self) -> &'static str {
-        self.refused
     }
 
     /// Said when a job waits for the job that is running, and the reader
@@ -1314,7 +1309,7 @@ impl Viewer {
         // A write lets go of the document until it lands, and a thread
         // that reads it meanwhile would find it gone. A reload keeps it.
         if self.writing.is_some() && !self.reloading {
-            self.refused = Self::WRITING;
+            self.notice = Self::WRITING.into();
             return false;
         }
         let taken = self.shelve(work, then, true);
@@ -1351,10 +1346,11 @@ impl Viewer {
         then: impl FnOnce(&mut Viewer, T) + 'static,
     ) -> bool {
         if self.writing.is_some() {
-            self.refused = match self.reloading {
+            self.notice = match self.reloading {
                 true => Self::RELOADING,
                 false => Self::WRITING,
-            };
+            }
+            .into();
             return false;
         }
         let edition = self.edition;
@@ -1383,14 +1379,15 @@ impl Viewer {
             false => &self.shelving,
         };
         if held.is_some() {
-            self.refused = match apart {
+            self.notice = match apart {
                 true => self.still_busy(),
                 false => Self::BUSY,
-            };
+            }
+            .into();
             return false;
         }
-        let landing = Arc::new(Mutex::new(None));
-        let (slot, post) = (Arc::clone(&landing), self.post.clone());
+        let landing = Landing::new();
+        let (slot, post) = (landing.clone(), self.post.clone());
         let working = crate::stats::Writing::begin();
         // What a job that panicked answers with. It still answers, because
         // until it does the window refuses every change as busy.
@@ -1402,11 +1399,7 @@ impl Viewer {
                     Ok(answer) => Box::new(answer),
                     Err(_) => Box::new(Failed),
                 };
-            *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(answer);
-            post.send(crate::emit::News {
-                event: Event::Shelved,
-                target: None,
-            });
+            slot.land(answer, &post, Event::Shelved);
         };
         match apart {
             true => drop(std::thread::spawn(job)),
@@ -1457,8 +1450,7 @@ impl Viewer {
                 true => &mut self.making,
                 false => &mut self.shelving,
             };
-            let landed = (held.as_ref())
-                .and_then(|(landing, _)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
+            let landed = (held.as_ref()).and_then(|(landing, _)| landing.take());
             if let (Some(answer), Some((_, then))) = (landed, held.take()) {
                 then(self, answer);
                 // A comment typed while the thread was reading waited for it.

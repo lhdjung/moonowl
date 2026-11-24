@@ -467,8 +467,7 @@ fn boxless_char(c: char) -> bool {
 /// [`crate::search::fold`] drops a soft hyphen because a reader typing a word
 /// did not type the printer's line break; a reader *copying* a passage is
 /// taking the document's own words, and silently editing them is a different
-/// thing from finding them. The app does not do it either — it copies what the
-/// DOM selection says, which is the printed text.
+/// thing from finding them.
 pub fn quote(text: &PageText, from: usize, to: usize) -> String {
     quote_as(text, from, to, false)
 }

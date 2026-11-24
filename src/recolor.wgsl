@@ -31,9 +31,8 @@ struct Theme {
 @group(0) @binding(1) var painted: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(2) var<uniform> theme: Theme;
 
-const WHITE_POINT: f32 = 235.0;
-const COLOUR_FLOOR: f32 = 12.0;
-const COLOUR_FULL: f32 = 32.0;
+// WHITE_POINT, COLOUR_FLOOR and COLOUR_FULL are put in front of this file by
+// `recolor.rs`, which defines them.
 
 // The conversion every write goes through, as in `recolor.rs`: clamp to
 // 0..255 and round halves to even.

@@ -64,9 +64,9 @@ use crate::store::Store;
 /// Dioxus compares props to decide whether to render and there is nothing in a
 /// closure to compare, so two of these are the same door when they are the
 /// same `Rc` — which is what a shell handing the same one down every render
-/// produces. Eight of them differed only in their name and in what they are
-/// handed; each still carries its own defaults and its own way of being
-/// called, in the `impl` block beneath it.
+/// produces. The doors differ only in their name and in what they are
+/// handed; each carries its own defaults and its own way of being called, in
+/// the `impl` block beneath it.
 macro_rules! door {
     ($(#[$note:meta])* $name:ident ($($arg:ty),*) $(-> $ret:ty)?) => {
         $(#[$note])*
@@ -222,8 +222,8 @@ impl Printer {
             };
 
             // The default handler, unless the default is this reader — which
-            // the .deb makes it, and then ⌘P came straight back here and
-            // printed nothing. Then a viewer that has a print dialog.
+            // the .deb makes it, and then ⌘P would come straight back here and
+            // print nothing. Then a viewer that has a print dialog.
             #[cfg(not(any(target_os = "macos", target_os = "windows")))]
             let mut command = {
                 let ours = std::process::Command::new("xdg-mime")
@@ -370,7 +370,7 @@ pub struct Config {
     /// Whether to watch the themes directory and the open document — see
     /// [`crate::watch`].
     ///
-    /// **Only the harness reads this now**: the binary provides one
+    /// **Only the harness reads this**: the binary provides one
     /// `Arc<Watching>` per process as a context and a window uses it whatever
     /// this says. Off with no context, because `Watching` has no way to stop —
     /// the thread outlives the handle, which is nothing at one per process and
@@ -583,9 +583,9 @@ const REVEAL: f64 = 0.3;
 ///
 /// A page is about 100KB of characters and boxes, and every mounted page a
 /// selection touches asks for its text on every render — which at a quarter
-/// size, or in a spread, is sixteen pages. Eight was a spread and its
-/// neighbours, and a longer sweep then extracted every page again each frame.
-/// Twenty-four is 2.4MB against the 23MB two page textures cost. See
+/// size, or in a spread, is sixteen pages. Eight would hold a spread and its
+/// neighbours, but a longer sweep would then extract every page again each
+/// frame. Twenty-four is 2.4MB against the 23MB two page textures cost. See
 /// [`Viewer::texts`], the one cache in this file that is bounded where the
 /// links beside it are not.
 pub const TEXT_CACHE: usize = 24;
@@ -845,12 +845,12 @@ fn note_lines(text: &str, width: f64) -> usize {
 /// How far down the window the pointer counts as reaching for the toolbar.
 ///
 /// **The handle's own band and everything above it, not the window's edge.**
-/// It was the top eight pixels — the strip macOS slides its own title bar and
-/// traffic lights over the moment a pointer arrives there, which put the one
-/// control that gives the toolbar back under the one thing the system puts in
-/// front of it. The handle sits lower now (see `.peek-line`), so the reach
-/// runs from the edge down past the foot of it: wherever the pointer is in
-/// that band it is either on the handle or on its way to it.
+/// macOS slides its own title bar and traffic lights over the top eight
+/// pixels the moment a pointer arrives there, so a handle there would be under
+/// the one thing the system puts in front of it. The handle sits lower (see
+/// `.peek-line`), so the reach runs from the edge down past the foot of it:
+/// wherever the pointer is in that band it is either on the handle or on its
+/// way to it.
 const PEEK_REACH: f64 = 130.0;
 
 /// And how far down it stays once it is down. It must be below [`PEEK_REACH`]
@@ -870,7 +870,7 @@ const BAR_LASTS: std::time::Duration = std::time::Duration::from_millis(2500);
 const DOUBLE_CLICK: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// How far a press may slide, in CSS pixels, and still be a click. Pressing a
-/// clickpad down moves the pointer; at 2 a tap on a mark was a sweep about
+/// clickpad down moves the pointer; at 2 a tap on a mark is a sweep about
 /// one time in three on Windows. Windows' own drag threshold is 4.
 const CLICK_SLOP: f64 = 4.0;
 
@@ -884,9 +884,9 @@ const ZOOM_SETTLES: std::time::Duration = std::time::Duration::from_millis(180);
 ///
 /// **A swipe is a stream and a keystroke is not.** One flick of a trackpad is
 /// dozens of events and then its momentum, and at the foot of a page in paged
-/// mode every one of them turned one — a swipe ran through a chapter. Only the
-/// wheel is held back, and only at an edge; a key turns every time it is
-/// pressed.
+/// mode every one of them would turn one, and a swipe would run through a
+/// chapter. Only the wheel is held back, and only at an edge; a key turns
+/// every time it is pressed.
 // ponytail: a plain gap, so a mouse wheel spun hard turns about three pages a
 // second. If that is ever too few, the phase winit knows about — momentum or
 // the reader's own fingers — is the thing to ask.
@@ -902,18 +902,46 @@ const TURN_GAP: std::time::Duration = std::time::Duration::from_millis(400);
 const STILL_MARK: f64 = 34.0;
 
 /// The marker itself, on the 24px grid the rest of the icons are drawn on: a
-/// ring in the theme's own surface and line, two chevrons, and the point the
-/// distance is measured from.
+/// ring in the theme's own surface and line, a chevron for each way the
+/// document can move from where it is (see [`Viewer::still_ways`]), and the
+/// point the distance is measured from.
 ///
-/// **Drawn rather than bordered.** It was a div with `border-radius: 50%` and
-/// a hairline border, and on a 2x screen the ring came out heavier down one
+/// **Drawn rather than bordered.** As a div with `border-radius: 50%` and a
+/// hairline border, on a 2x screen the ring comes out heavier down one
 /// side than the other — a grey sliver on the left of a shape whose whole job
 /// is to be symmetrical. A stroked circle goes through the same path
 /// rasteriser as every other icon in the window and is round by construction.
-fn still_mark(paper: &str, line: &str, ink: &str) -> String {
+fn still_mark(paper: &str, line: &str, ink: &str, ways: Ways) -> String {
+    // Up, down, left and right, in the order of `Ways`.
+    const CHEVRONS: [&str; 4] = [
+        "M12 5.2l-3.4 3.7M12 5.2l3.4 3.7",
+        "M12 18.8l-3.4-3.7M12 18.8l3.4-3.7",
+        "M5.2 12l3.7-3.4M5.2 12l3.7 3.4",
+        "M18.8 12l-3.7-3.4M18.8 12l-3.7 3.4",
+    ];
+    let chevrons: String = CHEVRONS
+        .iter()
+        .zip(ways)
+        .filter(|(_, open)| *open)
+        .map(|(path, _)| *path)
+        .collect();
     format!(
-        r#"<circle cx="12" cy="12" r="11.4" fill="{paper}" stroke="{line}" stroke-width="0.72"/><path d="M12 5.2l-3.4 3.7M12 5.2l3.4 3.7M12 18.8l-3.4-3.7M12 18.8l3.4-3.7" fill="none" stroke="{ink}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="1.4" fill="{ink}"/>"#
+        r#"<circle cx="12" cy="12" r="11.4" fill="{paper}" stroke="{line}" stroke-width="0.72"/><path d="{chevrons}" fill="none" stroke="{ink}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="1.4" fill="{ink}"/>"#
     )
+}
+
+/// Whether the document can move up, down, left and right from where it is.
+type Ways = [bool; 4];
+
+/// The names of the ways that are open, for the marker's `data-ways`.
+fn ways_named(ways: Ways) -> String {
+    ["up", "down", "left", "right"]
+        .iter()
+        .zip(ways)
+        .filter(|(_, open)| *open)
+        .map(|(name, _)| *name)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The stationary scroll's dead zone: a pointer within this many pixels of
@@ -1280,9 +1308,7 @@ impl Pick {
 /// wants to know what the reader asked for wants the list in order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ask {
-    /// A window of its own. The document is chosen by whoever answers, which
-    /// in this reader means a file picker: there is no start screen here, so
-    /// there is no such thing as a window with nothing in it. See
+    /// A window of its own, on the start screen. See
     /// [`crate::windows::Desk::hand_over`].
     NewWindow,
     /// A *tab* of the window in front, which is macOS's own idea and is
@@ -1703,7 +1729,7 @@ pub struct Opened {
 /// A document's markup and whether it can take more, read where waiting is
 /// cheap. It is every page's annotations, the words under each mark, and a
 /// probe file written beside the document — on the thread that draws, that
-/// was a stall after every highlight and every recompile.
+/// would be a stall after every highlight and every recompile.
 struct MarkupRead {
     marks: Vec<crate::markup::Mark>,
     /// The files attached to pages, found on the same walk.
@@ -1783,14 +1809,9 @@ type Leads = Result<Option<(usize, Rect)>, String>;
 /// document it was read in.
 /// The source file and line that made a place on a page, or why there is
 /// none, once the thread has read the SyncTeX file.
-type SourceLanding = Arc<Mutex<Option<Result<(std::path::PathBuf, u32), String>>>>;
+type SourceLanding = Landing<Result<(std::path::PathBuf, u32), String>>;
 
-type LeadsReading = (
-    Arc<Mutex<Option<Leads>>>,
-    crate::refs::Reference,
-    usize,
-    u64,
-);
+type LeadsReading = (Landing<Leads>, crate::refs::Reference, usize, u64);
 
 /// The signatures on a document's pages and the seals it carries.
 type SignedRead = (Vec<crate::sign::Placed>, Vec<crate::sign::Seal>);
@@ -1804,9 +1825,46 @@ type Done = Box<dyn FnOnce(&mut Viewer, Result<(), String>)>;
 /// Where an answer from the disk lands, and what takes it up. See
 /// [`Viewer::on_disk`].
 type Shelving = (
-    Arc<Mutex<Option<Box<dyn std::any::Any + Send>>>>,
+    Landing<Box<dyn std::any::Any + Send>>,
     Box<dyn FnOnce(&mut Viewer, Box<dyn std::any::Any + Send>)>,
 );
+
+/// Where a thread's answer waits for the window, which takes it up when the
+/// news the thread sends arrives. A slot the window has let go of or
+/// replaced is never taken up: its answer is about something put down.
+pub(super) struct Landing<T>(Arc<Mutex<Option<T>>>);
+
+impl<T> Clone for Landing<T> {
+    fn clone(&self) -> Self {
+        Landing(Arc::clone(&self.0))
+    }
+}
+
+impl<T> Landing<T> {
+    pub(super) fn new() -> Self {
+        Landing(Arc::new(Mutex::new(None)))
+    }
+
+    /// Put the answer down, and tell the window it is there.
+    pub(super) fn land(&self, answer: T, post: &crate::emit::Post, event: Event) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(answer);
+        post.send(crate::emit::News {
+            event,
+            target: None,
+        });
+    }
+
+    /// The answer, once it has landed.
+    pub(super) fn take(&self) -> Option<T> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).take()
+    }
+
+    /// Whether the window has let go of the slot, so the answer is not
+    /// wanted any more.
+    pub(super) fn abandoned(&self) -> bool {
+        Arc::strong_count(&self.0) == 1
+    }
+}
 
 pub struct Viewer {
     pub document: Arc<dyn PageSource>,
@@ -1865,6 +1923,9 @@ pub struct Viewer {
     pub arming: Option<Arming>,
     /// The two-page arrangement the spread key goes back to.
     pub last_pair: Spread,
+    /// The fit a spread fitted to the width gave way to, which one page
+    /// across brings back. See [`Viewer::fit_the_pair`].
+    fit_before_pair: Option<Fit>,
     /// Whether the last press put a menu away, which is all it did.
     pub pressed_to_dismiss: bool,
     /// The panel's tab before a search took it over. See [`Viewer::show_results_tab`].
@@ -1881,7 +1942,7 @@ pub struct Viewer {
     pill_up: bool,
     /// A `Cell`, as `bar_token` is: starting the clock again on a pill or bar
     /// already up changes nothing on screen, so it takes no write — on every
-    /// scroll frame that write was a second render.
+    /// scroll frame that write would be a second render.
     pill_token: Cell<u64>,
     /// Which arming of the notice's four seconds is the live one: an earlier
     /// timer finding the same words on the line is not theirs to clear.
@@ -1891,8 +1952,10 @@ pub struct Viewer {
     /// answers a scroll, stays down. See [`Viewer::relaid`].
     relaid_at: f64,
     /// Where the reader is to land once the document is read again, after a
-    /// page edit whose document did not reopen moved the page they were on.
-    place_owed: Option<crate::layout::Anchor>,
+    /// page edit whose document did not reopen moved the page they were on,
+    /// with the page in view when it was owed. A reader who has gone to
+    /// another page since is not taken back there.
+    place_owed: Option<(crate::layout::Anchor, usize)>,
     /// The scrollbar, which is the same thing again: up while the document is
     /// moving and for [`BAR_LASTS`] after it stops.
     ///
@@ -1968,7 +2031,7 @@ pub struct Viewer {
     pub pages_menu: Option<((f64, f64), usize)>,
     /// The recently read documents the Open menu lists, read when it opens.
     /// The toolbar's memo runs on every scroll frame, and reading them there
-    /// asked the disk about `library.toml` each time.
+    /// would ask the disk about `library.toml` each time.
     pub open_recents: Vec<crate::store::Recent>,
     /// What is typed in that menu's "Number pages from here…" field, while
     /// it is open: the label the first page is to have.
@@ -2011,9 +2074,8 @@ pub struct Viewer {
     /// mean every method that changes which pages are mounted remembering to,
     /// and forgetting one is a page whose cross-references quietly do nothing.
     ///
-    /// Not trimmed: a link is a rectangle and a target, and four hundred pages
-    /// of them is a fiftieth of one page's texture. The caches worth watching
-    /// hold *pixels*.
+    /// At most [`ANNOTATED_KEPT`] pages are kept, with their notes and
+    /// fields: a note's words have no limit on their length.
     links: RefCell<HashMap<usize, Rc<Vec<Link>>>>,
     /// And the notes on it, kept the same way and for the same reason: a
     /// document that carries none — which is most of them — asks pdfium once
@@ -2140,6 +2202,12 @@ pub struct Viewer {
     /// The comment being written in whichever of the two popovers is up —
     /// on the selection, or on the mark clicked — as typed so far.
     pub commenting: Option<String>,
+    /// The words of a comment whose write was refused for good and put back
+    /// into its field. They do not keep the window from closing, since they
+    /// would be refused again. Words refused only for now, because the
+    /// document was changing on disk, are written again when the window
+    /// closes, as a form field's are.
+    refused_comment: Option<String>,
     /// The form's text field being typed in. See [`Viewer::press_field`].
     pub filling: Option<forms::Filling>,
     /// Whether the comment was confirmed while another write was under way.
@@ -2399,10 +2467,10 @@ pub struct Viewer {
     pub tabs: Tabs,
     pub tabbed: bool,
     /// The write in flight: where its result lands, and what to do with it.
-    writing: Option<(Arc<Mutex<Option<Landed>>>, Done)>,
+    writing: Option<(Landing<Landed>, Done)>,
     /// The document being opened on its thread, and where it lands. See
     /// [`Viewer::opened`].
-    pub opening: Option<Arc<Mutex<Option<Opened>>>>,
+    pub(crate) opening: Option<Landing<Opened>>,
     /// What the next write keeps beside the document if it is refused. The
     /// thread that writes runs it, not the window, because the window may
     /// have closed by the time the refusal lands.
@@ -2415,7 +2483,7 @@ pub struct Viewer {
     reload_owed: bool,
     /// Where the markup of the document just opened lands, read on a thread
     /// of its own. See [`Viewer::read_markup`].
-    markup_reading: Option<Arc<Mutex<Option<MarkupRead>>>>,
+    markup_reading: Option<Landing<MarkupRead>>,
     /// The files attached to pages, found by the markup read.
     pub attached: Vec<crate::render::Attached>,
     /// Where the line a ⌘-clicked reference leads to lands, with the
@@ -2425,15 +2493,16 @@ pub struct Viewer {
     /// Where the source line a ⇧⌘-click asked for lands, with the text
     /// edition it was asked in. See [`Viewer::source_at`].
     source_reading: Option<(SourceLanding, u64)>,
-    /// A click to the source made while another was looked up: its page and
-    /// place, looked up once that one lands.
-    source_owed: Option<(usize, (f64, f64))>,
+    /// A click to the source made while another was looked up: its page,
+    /// its place in SyncTeX's points and the text edition it was made in,
+    /// looked up once that one lands.
+    source_owed: Option<(usize, (f64, f64), u64)>,
     /// The comparison to make once the other file has opened here. See
     /// [`Viewer::swap_comparison`].
     swapping: Option<compare::Swap>,
     /// Where the Sign window's lists of the document land, with which
     /// document they are of. See [`Viewer::read_signed`].
-    signed_reading: Option<Arc<Mutex<Option<SignedOf>>>>,
+    signed_reading: Option<Landing<SignedOf>>,
     /// A theme or palette being written or deleted. See [`Viewer::on_disk`].
     shelving: Option<Shelving>,
     /// A file the reader asked for being made, kept apart from `shelving`
@@ -2443,9 +2512,6 @@ pub struct Viewer {
     /// Whether that thread reads the open document, so that a write, which
     /// lets go of the document, has to wait for it.
     making_reads: Reads,
-    /// Why the last job asked of [`Viewer::on_disk`] or
-    /// [`Viewer::on_thread`] was not started, as the reader is told.
-    refused: &'static str,
     /// The editor's request that came while that thread was busy, so that
     /// it is taken up when the thread is done.
     forward_owed: Option<u64>,
@@ -2499,6 +2565,15 @@ pub struct Viewer {
 impl Drop for Viewer {
     fn drop(&mut self) {
         self.forget_forward();
+        // A comparison or text being recognised is stopped, since its
+        // answer would go to a window that is not there. A report is left
+        // to finish: it is a file the reader asked for, and its thread
+        // writes it without the window.
+        if let Some((job, stop)) = &self.stoppable {
+            if *job != Stoppable::Reporting {
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
         // A window that goes while it asks for a password will not take up
         // an editor's request for that document.
         if let Some(locked) = &self.locked {
@@ -2582,6 +2657,7 @@ impl Viewer {
             results_borrowed: false,
             arming: None,
             last_pair: Spread::Cover,
+            fit_before_pair: None,
             pressed_to_dismiss: false,
             tab_before_results: None,
             offered_results: false,
@@ -2655,6 +2731,7 @@ impl Viewer {
             mark_open: None,
             comment_menu: false,
             commenting: None,
+            refused_comment: None,
             filling: None,
             comment_owed: false,
             clicks_owed: Vec::new(),
@@ -2742,7 +2819,6 @@ impl Viewer {
             shelving: None,
             making: None,
             making_reads: Reads::Nothing,
-            refused: "",
             forward_owed: None,
             said_once_open: None,
             stoppable: None,
@@ -2788,10 +2864,11 @@ impl Viewer {
     ///
     /// Called by `Reader` once the window's mailbox is in, because a trim
     /// restored here is measured on a thread that answers through it.
-    /// The fit mode the reader chose, as the settings have it — which the
-    /// layout's can differ from while a spread is fitted for the moment. See
-    /// [`Viewer::set_spread`].
-    fn stored_fit(&self) -> Fit {
+    /// The fit mode the reader chose, as the settings have it. The layout's
+    /// differs from it while a spread is fitted for the moment (see
+    /// [`Viewer::set_spread`]), and while the reader has zoomed a page that
+    /// Settings fits (see [`Viewer::zoom`]).
+    pub fn stored_fit(&self) -> Fit {
         match self.store.text("fit_mode").as_str() {
             "page" => Fit::Page,
             "actual" => Fit::Actual,
@@ -3235,9 +3312,9 @@ impl Viewer {
 
     /// The window says whether it is in full screen, having been resized.
     ///
-    /// **Presenting ends with the full screen it lives in.** Left by the
-    /// green button, presenting stayed on in an ordinary window with nothing
-    /// on it. Only once presenting has been seen in full screen, because the
+    /// **Presenting ends with the full screen it lives in.** Otherwise, left
+    /// by the green button, presenting would stay on in an ordinary window
+    /// with nothing on it. Only once presenting has been seen in full screen, because the
     /// resizes on the way *in* can still say it is not.
     pub fn window_full(&mut self, full: bool) {
         // The first report from a launch window that was put down in full
@@ -3373,9 +3450,9 @@ impl Viewer {
 
     /// The find bar and the page field down, for a window that covers them.
     /// Both ask for the keyboard, and the innermost asker wins every event:
-    /// left up behind Settings, each click in a Settings field handed the
-    /// keyboard straight back to them, and what was typed went into a search
-    /// nobody could see. The index is kept, as a menu keeps it.
+    /// left up behind Settings, each click in a Settings field would hand the
+    /// keyboard straight back to them, and what was typed would go into a
+    /// search nobody could see. The index is kept, as a menu keeps it.
     fn let_go_of_keyboard(&mut self) {
         if self.find_open {
             self.put_find_away();
@@ -3477,8 +3554,7 @@ impl Viewer {
             .unwrap_or(self.layout.zoom * 100.0)
     }
 
-    /// A fixed zoom, typed rather than stepped. The pair that never moves
-    /// alone — see [`Viewer::zoom`].
+    /// A fixed zoom, typed rather than stepped. See [`Viewer::zoom`].
     pub fn set_zoom(&mut self, zoom: f64) {
         // A zoom asked for outright ends any gesture that was running, or the
         // pages would hold a stale texture until its timer came round.
@@ -3490,9 +3566,9 @@ impl Viewer {
             layout.fit = Fit::Actual;
             layout.zoom = zoom;
         });
+        self.fit_before_pair = None;
         self.store.set(vec![
             ("zoom".into(), json!(zoom)),
-            ("fit_mode".into(), json!(name_of(Fit::Actual))),
             ("spread_fitted".into(), json!(false)),
         ]);
     }
@@ -3538,9 +3614,9 @@ impl Viewer {
             layout.zoom = next;
         });
         self.say_zoom(next);
+        self.fit_before_pair = None;
         self.store.set_soon(vec![
             ("zoom".into(), json!(next)),
-            ("fit_mode".into(), json!(name_of(Fit::Actual))),
             ("spread_fitted".into(), json!(false)),
         ]);
     }
@@ -3643,7 +3719,7 @@ impl Viewer {
     /// being moved slowly goes quiet between events for longer than one turn
     /// of the clock, and hiding it in those gaps would make it flicker.
     pub fn cursor_rests(&self) -> std::time::Duration {
-        // A hand-edited 1e20 is past what a `Duration` holds, and panicked.
+        // A hand-edited 1e20 is past what a `Duration` holds, and would panic.
         std::time::Duration::from_secs_f64(
             self.store.number("hide_cursor_after").clamp(0.2, 3600.0),
         )
@@ -3737,7 +3813,11 @@ impl Viewer {
         // a file with nothing wrong in it redraws to exactly what was there.
         self.notice = match self.keymap.problems.len() {
             0 => "The keys were read again from keys.toml.".to_string(),
-            one => format!("The keys were read again from keys.toml. {one} of its lines could not be used, and the list below says why."),
+            // A problem is not always a line: two actions given the same
+            // key are one problem.
+            _ => "The keys were read again from keys.toml. Not all of it could be used, and \
+                  the list below says why."
+                .to_string(),
         };
         self.store.keys_reloaded();
     }
@@ -4009,7 +4089,7 @@ impl Viewer {
         let row = self.layout.row_of(at - 1);
         let next = row.last().map_or(at + 1, |last| last + 2);
         // Past the last row there is only the rest of the last page, and
-        // `scroll_target` clamping to its top sent the reader back up it.
+        // `scroll_target` clamping to its top would send the reader back up it.
         if next > self.pages() {
             self.scroll_to(self.layout.max_scroll());
             return;
@@ -4310,7 +4390,35 @@ impl Viewer {
         self.notes.borrow_mut().insert(index, Rc::new(notes));
         self.fields.borrow_mut().insert(index, Rc::new(fields));
         self.keep_text(index + 1, Rc::new(text));
+        self.trim_annotations(index);
         true
+    }
+
+    /// Past [`ANNOTATED_KEPT`] pages, the pages furthest from the reader
+    /// let go of their links, notes and fields, and they are read again
+    /// when they are next shown. A page on screen is kept, and so is
+    /// `taken`, the page just read, which may be off screen because a link's
+    /// preview shows it.
+    fn trim_annotations(&self, taken: usize) {
+        let mut links = self.links.borrow_mut();
+        if links.len() <= ANNOTATED_KEPT {
+            return;
+        }
+        let mounted = self.layout.mounted(self.scroll_top);
+        let here = mounted.first().copied().unwrap_or(0);
+        let mut far: Vec<usize> = (links.keys().copied())
+            .filter(|index| *index != taken && !mounted.contains(index))
+            .collect();
+        far.sort_unstable_by_key(|index| std::cmp::Reverse(index.abs_diff(here)));
+        far.truncate(links.len() - ANNOTATED_KEPT);
+        let (mut notes, mut fields) = (self.notes.borrow_mut(), self.fields.borrow_mut());
+        let mut held = self.annotations.lock().unwrap_or_else(|e| e.into_inner());
+        for index in far {
+            links.remove(&index);
+            notes.remove(&index);
+            fields.remove(&index);
+            held.asked.remove(&index);
+        }
     }
 
     /// Take up what the thread has read for a page, or ask it to read it:
@@ -4362,12 +4470,17 @@ impl Viewer {
                         }
                     }
                 };
-                let read = (
-                    document.links_of(index),
-                    document.notes_of(index),
-                    document.text_of(index),
-                    document.fields_of(index),
-                );
+                // A page that cannot be read has no links, notes or fields,
+                // and the pages after it are still read.
+                let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    (
+                        document.links_of(index),
+                        document.notes_of(index),
+                        document.text_of(index),
+                        document.fields_of(index),
+                    )
+                }))
+                .unwrap_or_default();
                 {
                     let mut held = annotations.lock().unwrap_or_else(|e| e.into_inner());
                     if held.epoch != epoch {
@@ -4463,10 +4576,7 @@ impl Viewer {
         crate::emit::after(
             self.glance_after(),
             self.post.clone(),
-            crate::emit::News {
-                event: Event::GlanceDue(self.glance_rests),
-                target: None,
-            },
+            Event::GlanceDue(self.glance_rests),
         );
     }
 
@@ -4525,10 +4635,7 @@ impl Viewer {
         crate::emit::after(
             GLANCE_GRACE,
             self.post.clone(),
-            crate::emit::News {
-                event: Event::GlanceLeft(self.glance_leaves),
-                target: None,
-            },
+            Event::GlanceLeft(self.glance_leaves),
         );
     }
 
@@ -4838,10 +4945,10 @@ impl Viewer {
             return;
         };
         // **Without the draft that was previewed a keystroke ago.** A theme
-        // that is not yet on disk has no id, so the search below never finds
-        // the copy of it left by the last press of a key and appended another —
-        // and a reader naming a theme Brownie watched B, Br, Bro and four more
-        // pile up in the theme list, all of them the same unsaved theme. An id
+        // that is not yet on disk has no id, so the search below would never
+        // find the copy of it left by the last press of a key and would append
+        // another — and a reader naming a theme Brownie would watch B, Br, Bro
+        // and four more pile up in the theme list, all of them the same unsaved theme. An id
         // is what a saved theme has; nothing else belongs in that list.
         let mut themes: Vec<crate::theme::Theme> = self
             .store
@@ -4969,9 +5076,8 @@ impl Viewer {
         );
         // A save refused because the last is still going leaves that one
         // in flight.
-        match saving {
-            true => self.saving_theme = true,
-            false => self.notice = self.why_refused().into(),
+        if saving {
+            self.saving_theme = true;
         }
     }
 
@@ -5043,7 +5149,7 @@ impl Viewer {
         }
         let dir = self.store.themes_dir().to_path_buf();
         let path = path.to_string();
-        let taken = self.on_disk(
+        self.on_disk(
             move || {
                 let imported = std::fs::read_to_string(path)
                     .map_err(|e| e.to_string())
@@ -5058,16 +5164,13 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
     }
 
     /// The theme being worn, written where the reader chose.
     pub fn export_theme(&mut self, path: &str) {
         let theme = self.store.theme().clone();
         let path = path.to_string();
-        let taken = self.on_disk(
+        self.on_disk(
             move || {
                 theme
                     .to_toml()
@@ -5083,9 +5186,6 @@ impl Viewer {
                 };
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
     }
 
     /// Ask whether to delete `theme`, in a window of its own.
@@ -5141,7 +5241,7 @@ impl Viewer {
             return;
         }
         let dir = self.store.themes_dir().to_path_buf();
-        let taken = self.on_disk(
+        self.on_disk(
             move || {
                 let deleted = crate::theme::Theme::delete(&dir, &draft.id);
                 (draft, deleted, crate::theme::Theme::load_all(&dir))
@@ -5158,9 +5258,6 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
     }
 
     /// The themes as the directory now has them, and the chosen one worn.
@@ -5169,7 +5266,7 @@ impl Viewer {
     fn took_themes(&mut self, themes: Vec<crate::theme::Theme>) {
         self.store.set_themes(themes);
         // What the settings name, and not pinned for the run: a pinned theme
-        // never followed one chosen in another window.
+        // would never follow one chosen in another window.
         self.store.wear_chosen();
         self.chosen.set(self.store.palette());
         self.generation += 1;
@@ -5250,14 +5347,20 @@ impl Viewer {
             return;
         }
         self.close_details();
+        let typed = draft.clone();
         self.write_step(
             self.store.journal().to_vec(),
             move |path| crate::objects::write_details(path, &draft),
-            |viewer, written| {
+            move |viewer, written| {
                 let undo = viewer.chord_for(Action::Undo);
                 viewer.notice = match written {
                     Ok(()) => format!("Saved the details. {undo} puts them back."),
-                    Err(refused) => refused,
+                    // The window comes back with what was typed in it.
+                    Err(refused) => {
+                        viewer.details_open = true;
+                        viewer.details_draft = typed;
+                        format!("{refused} Your words are still in the window.")
+                    }
                 };
             },
         );
@@ -5285,7 +5388,8 @@ impl Viewer {
                     self.notice = format!("Opened {url}.");
                     Some(url)
                 }
-                // [`Away`] drops these, and the notice said "Opened" anyway.
+                // [`Away`] drops these, and the notice would say "Opened"
+                // anyway.
                 None => {
                     self.notice =
                         format!("{url} is not a web or mail address, so it was not opened.");
@@ -5377,12 +5481,16 @@ impl Viewer {
         // The oldest goes first, but not a page on screen while another can
         // go: at a small zoom more than `TEXT_CACHE` pages can be on screen,
         // and each would push out the next, which is then read again.
+        // When every page held is on screen, none goes, so the cache grows
+        // with the pages mounted, which `OVERSCAN` caps, and shrinks back
+        // once they are fewer.
         if held.len() > TEXT_CACHE {
             let mounted = self.layout.mounted(self.scroll_top);
             let shown = |at: &usize| mounted.contains(&(at - 1));
-            // ponytail: when every page held is on screen, none goes, so
-            // the cache grows with the pages mounted, which `OVERSCAN` caps.
-            if let Some(oldest) = held.iter().position(|(at, _)| !shown(at)) {
+            while held.len() > TEXT_CACHE {
+                let Some(oldest) = held.iter().position(|(at, _)| !shown(at)) else {
+                    break;
+                };
                 held.remove(oldest);
             }
         }
@@ -6083,7 +6191,7 @@ impl Viewer {
     /// what "numbers its own straight through" means and is the whole of the
     /// case this is for. A book whose front matter is i, ii, iii before a body
     /// that starts again at 1 has no last number to count to — its sixth page
-    /// is called 3 — so that one says how many pages there are, as before.
+    /// is called 3 — so that one says how many pages there are.
     pub fn pages_text(&self) -> String {
         let pages = self.pages();
         if pages == 0 {
@@ -6263,8 +6371,8 @@ impl Viewer {
 
     /// Relay out around a point in the window — the pointer, for a pinch or a
     /// ⌘-wheel — so that what is under it stays under it. Kept at the top
-    /// edge, a formula pinched in the middle of the screen slid to the bottom
-    /// and off it. Anywhere outside the document is the top edge again.
+    /// edge, a formula pinched in the middle of the screen would slide to the
+    /// bottom and off it. Anywhere outside the document is the top edge again.
     fn keeping_point(&mut self, at: Option<(f64, f64)>, change: impl FnOnce(&mut Layout)) {
         let viewport = self.layout.viewport;
         let inside = at
@@ -6335,26 +6443,23 @@ impl Viewer {
             Fit::Page => "Fit page".into(),
             Fit::Actual => format!("{:.0}%", self.layout.zoom * 100.0),
         };
+        self.fit_before_pair = None;
         self.store.set(vec![
             ("fit_mode".into(), json!(name_of(fit))),
             ("spread_fitted".into(), json!(false)),
         ]);
     }
 
-    /// Actual size, which is a fit mode *and* a zoom of 1.
-    ///
-    /// The pair that never moves alone, and the reason `store.set` takes a
-    /// group: written one at a time, a zoom of 1 lands under a fit mode that
-    /// ignores it and the next run comes back fitted to the width.
+    /// Actual size: a zoom of 1. See [`Viewer::zoom`].
     pub fn actual_size(&mut self) {
         self.keeping_place(|layout| {
             layout.fit = Fit::Actual;
             layout.zoom = 1.0;
         });
         self.notice = "Actual size".into();
+        self.fit_before_pair = None;
         self.store.set(vec![
             ("zoom".into(), json!(1.0)),
-            ("fit_mode".into(), json!(name_of(Fit::Actual))),
             ("spread_fitted".into(), json!(false)),
         ]);
     }
@@ -6393,12 +6498,13 @@ impl Viewer {
             layout.zoom = next;
         });
         self.say_zoom(next);
-        // The pair that never moves alone, and the reason `set` takes a group:
-        // a zoom without the fit mode it left comes back as a fit width that
-        // ignores it.
+        // **A zoom is for the moment when the reader fits the page.** Only
+        // the zoom is written, and the fit chosen in Settings comes back
+        // with the next window. Whether the fit is a spread's is written
+        // too, since the reader has now chosen a zoom of their own.
+        self.fit_before_pair = None;
         self.store.set(vec![
             ("zoom".into(), json!(next)),
-            ("fit_mode".into(), json!(name_of(Fit::Actual))),
             ("spread_fitted".into(), json!(false)),
         ]);
     }
@@ -6456,7 +6562,11 @@ impl Viewer {
         let working = crate::stats::Writing::begin();
         std::thread::spawn(move || {
             let _working = working;
-            let crop = crate::crop::measure(&document);
+            // A document that cannot be measured is shown untrimmed.
+            let crop = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::crop::measure(&document)
+            }))
+            .unwrap_or(None);
             // A document released for a write refuses to be drawn, so what
             // was measured is not its margins. The reopen measures again.
             if document.released() {
@@ -6558,8 +6668,9 @@ impl Viewer {
         let crop = self.turned(crop);
         // **A hair's difference is no difference.** A recompile measures
         // again, off different sample pages when the draft changed length,
-        // and a crop that moved by a point re-keyed every page — each blank
-        // until pdfium drew it again, and the scale nudged under the reader.
+        // and a crop that moved by a point would re-key every page — each
+        // blank until pdfium drew it again — and nudge the scale under the
+        // reader.
         if let (Some(new), Some(old)) = (crop, self.layout.crop) {
             let near = |a: f64, b: f64| (a - b).abs() < 0.01;
             if near(new.x, old.x)
@@ -6648,7 +6759,12 @@ impl Viewer {
         // [`Viewer::fit_the_pair`]. Two to Cover keeps the pair's fit without
         // fitting again, and is still the pair's. Any fit or zoom the reader
         // then chooses says `false` again.
-        let fitted = spread != Spread::Single && self.layout.fit != self.stored_fit();
+        if spread == Spread::Single {
+            if let Some(fit) = self.fit_before_pair.take() {
+                self.keeping_place(|layout| layout.fit = fit);
+            }
+        }
+        let fitted = self.fit_before_pair.is_some();
         self.store.set(vec![
             (
                 "spread_mode".into(),
@@ -6662,9 +6778,6 @@ impl Viewer {
         ]);
         if fitting {
             self.notice = "The zoom is now fit width, to show both pages.".into();
-        } else if spread == Spread::Single && self.layout.fit != self.stored_fit() {
-            let fit = self.stored_fit();
-            self.keeping_place(|layout| layout.fit = fit);
         }
     }
 
@@ -6685,6 +6798,7 @@ impl Viewer {
         if self.layout.spread == Spread::Single || self.layout.max_scroll_x() <= 0.0 {
             return false;
         }
+        self.fit_before_pair.get_or_insert(self.layout.fit);
         self.keeping_place(|layout| layout.fit = Fit::Width);
         true
     }
@@ -6990,6 +7104,10 @@ impl Viewer {
         }
         self.still_from = Some(at);
         self.still_at = at;
+        // The press that starts the gesture puts away a handle that was
+        // down. Moving the pointer then steers the page and never reaches
+        // for the toolbar, since the root's `onmousemove` steers and stops.
+        self.peek = false;
         self.still_token += 1;
         Some(self.still_token)
     }
@@ -7053,10 +7171,7 @@ impl Viewer {
         crate::emit::after(
             STILL_TICK,
             self.post.clone(),
-            crate::emit::News {
-                event: Event::StillTick(self.still_token),
-                target: None,
-            },
+            Event::StillTick(self.still_token),
         );
     }
 
@@ -7080,6 +7195,23 @@ impl Viewer {
             x.clamp(edge, (self.window_width - edge).max(edge)),
             y.clamp(top, (self.window_height - edge).max(top)),
         ))
+    }
+
+    /// Which ways the stationary scroll can move the document from here: up,
+    /// down, left and right. Less than half a pixel left is nothing left.
+    /// The marker shows a chevron for each, so a page that fits the window's
+    /// width shows only up and down, and at the top of the document the
+    /// upward one goes.
+    pub fn still_ways(&self) -> Ways {
+        let down = self.layout.max_scroll();
+        let across = self.layout.max_scroll_x();
+        let left = self.scroll_left();
+        [
+            self.scroll_top > 0.5,
+            self.scroll_top < down - 0.5,
+            left > 0.5,
+            left < across - 0.5,
+        ]
     }
 
     /// How far to move this step, across and down — or `None` when this run is
@@ -7143,6 +7275,10 @@ impl Viewer {
 /// How many pages' links, notes and text wait to be read, and how many wait
 /// to be taken up once they have been. See [`Viewer::ask_annotations`].
 const ANNOTATIONS_QUEUED: usize = 32;
+
+/// How many pages' links, notes and fields are kept. See
+/// [`Viewer::trim_annotations`].
+const ANNOTATED_KEPT: usize = 512;
 
 /// What is read of a page beside its pixels: its links, notes, text and
 /// form fields.
@@ -7218,425 +7354,6 @@ struct Placed {
     fields: Vec<(Rect, crate::render::Field)>,
     /// The text field being typed in on this page, and its words.
     filling: Option<(Rect, String)>,
-}
-
-/// The element that wants the keyboard, as a selector.
-///
-/// **A click takes the focus away from the reader, and the reader cannot take
-/// it back.** Blitz walks up from whatever was clicked looking for something
-/// it knows how to focus, and a plain `<button>` is not on that list, so the
-/// focus ends up on `<html>` — which is above anything a component can put a
-/// handler on. Without the steps below, every shortcut would do nothing from
-/// the first click onwards.
-///
-/// It cannot be answered from inside the reader either: `MountedData::set_focus`
-/// takes `doc_mut()`, and every place a component could call it from is already
-/// inside a borrow of the document — a task spawned from one included.
-///
-/// So the element that wants the keyboard says so and whoever owns the window
-/// hands it back: `shell.rs` after a real click, the harness after a
-/// synthesised one.
-pub const KEYBOARD: &str = "[data-keyboard]";
-
-/// Give the keyboard back to the element that asked for it, unless something
-/// inside it has taken the focus.
-///
-/// Focus that lands *inside* the reader belongs to whatever took it — a field
-/// in the find bar. Focus anywhere else is focus nobody wanted, which is what
-/// a click on a button leaves behind.
-pub fn give_keyboard_back(doc: &mut blitz_dom::BaseDocument) {
-    // **The innermost element that asks for it wins**, which is why this is
-    // `query_selector_all` and takes the last: the root always asks, and the
-    // find bar's field is a descendant, so it comes later in document order.
-    // Otherwise a click on "Match case" hands the keyboard to the root and the
-    // next thing typed scrolls the document.
-    let Ok(wants) = doc.query_selector_all(KEYBOARD) else {
-        return;
-    };
-    let Some(wants) = wants.last().copied() else {
-        return;
-    };
-    if let Some(focused) = doc.get_focussed_node_id() {
-        let mut node = Some(focused);
-        while let Some(id) = node {
-            if id == wants {
-                return;
-            }
-            node = doc.get_node(id).and_then(|node| node.parent);
-        }
-    }
-    doc.set_focus_to(wants);
-}
-
-/// [`give_keyboard_back`], answering whether the focus moved.
-///
-/// A key or a click that removes the focused field is followed by
-/// `give_keyboard_back`, but news can remove a field too: a recompile that
-/// takes away a comment's passage takes the comment field with it. Without
-/// this, the next key would go nowhere. The shell asks on every event and the
-/// harness in `settle`. A removed field leaves the focus on `html` or on
-/// nothing.
-pub fn keyboard_if_lost(doc: &mut blitz_dom::BaseDocument) -> bool {
-    // Inside an element that asks for the keyboard, it is not lost. That is
-    // a walk up from one node, where the search below reads the whole page.
-    let asks = blitz_dom::LocalName::from("data-keyboard");
-    let mut node = doc.get_focussed_node_id();
-    while let Some(id) = node {
-        let Some(here) = doc.get_node(id) else { break };
-        if here
-            .element_data()
-            .is_some_and(|el| el.has_attr(asks.clone()))
-        {
-            return false;
-        }
-        node = here.parent;
-    }
-    let before = doc.get_focussed_node_id();
-    give_keyboard_back(doc);
-    doc.get_focussed_node_id() != before
-}
-
-/// A key that the controls answer before the keymap hears it, pressed with
-/// no modifiers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ControlKey {
-    Enter,
-    Space,
-    Up,
-    Down,
-}
-
-/// What [`keys_on_controls`] did with a key.
-pub enum OnControls {
-    /// Nothing. The key goes on to the document as usual.
-    Pass,
-    /// The key moved the focus within an open menu, and goes no further.
-    Moved,
-    /// Enter or Space on a button that has the focus. The caller sends these
-    /// two events, a press and a release over the middle of the button, so
-    /// that the key does exactly what a click there does, and then calls
-    /// [`after_press`].
-    Press(blitz_dom::NodeId, Box<[blitz_traits::events::UiEvent; 2]>),
-}
-
-/// **Tab moves the focus from button to button, and these keys act on it.**
-/// Blitz moves the focus on Tab but does nothing with Enter or Space on a
-/// button, and gives the menus no arrow keys. The shell and the harness ask
-/// this before they hand a key to the document.
-pub fn keys_on_controls(doc: &mut blitz_dom::BaseDocument, key: ControlKey) -> OnControls {
-    use blitz_traits::events::{MouseEventButtons, UiEvent};
-    let focused = doc.get_focussed_node_id();
-    let is = |doc: &blitz_dom::BaseDocument, id: blitz_dom::NodeId, tag: &str| {
-        doc.get_node(id)
-            .and_then(|node| node.element_data())
-            .is_some_and(|el| &*el.name.local == tag)
-    };
-    let enabled = |doc: &blitz_dom::BaseDocument, id: blitz_dom::NodeId| {
-        doc.get_node(id)
-            .and_then(|node| node.attr(blitz_dom::local_name!("disabled")))
-            .is_none()
-    };
-    let inside =
-        |doc: &blitz_dom::BaseDocument, id: blitz_dom::NodeId, outer: blitz_dom::NodeId| {
-            let mut node = Some(id);
-            while let Some(at) = node {
-                if at == outer {
-                    return true;
-                }
-                node = doc.get_node(at).and_then(|node| node.parent);
-            }
-            false
-        };
-    match key {
-        ControlKey::Enter | ControlKey::Space => {
-            let Some(button) = focused.filter(|&id| is(doc, id, "button") && enabled(doc, id))
-            else {
-                return OnControls::Pass;
-            };
-            let Some(node) = doc.get_node(button) else {
-                return OnControls::Pass;
-            };
-            let up = node.synthetic_click_event_data(Default::default());
-            // Only if the button is what a click at its middle would land on:
-            // anything over it would take the click instead.
-            let landing = doc.hit(up.page_x(), up.page_y()).map(|hit| hit.node_id);
-            if !landing.is_some_and(|hit| inside(doc, hit, button)) {
-                return OnControls::Pass;
-            }
-            let down = blitz_traits::events::BlitzPointerEvent {
-                buttons: MouseEventButtons::Primary,
-                ..up.clone()
-            };
-            OnControls::Press(
-                button,
-                Box::new([UiEvent::PointerDown(down), UiEvent::PointerUp(up)]),
-            )
-        }
-        ControlKey::Up | ControlKey::Down => {
-            // Not a highlight's colours: that popover stays up while the
-            // page scrolls, and the arrows go on scrolling it.
-            let Ok(menus) = doc.query_selector_all(".menu:not(.mark-popover)") else {
-                return OnControls::Pass;
-            };
-            // The menu that has the focus, or else the one opened last.
-            let menu = menus
-                .iter()
-                .copied()
-                .find(|&menu| focused.is_some_and(|id| inside(doc, id, menu)))
-                .or_else(|| menus.last().copied());
-            let Some(menu) = menu else {
-                return OnControls::Pass;
-            };
-            // A field in a menu keeps its own arrow keys.
-            if focused.is_some_and(|id| is(doc, id, "input") || is(doc, id, "textarea")) {
-                return OnControls::Pass;
-            }
-            let Ok(buttons) = doc.query_selector_all("button") else {
-                return OnControls::Pass;
-            };
-            let items: Vec<_> = buttons
-                .into_iter()
-                .filter(|&id| inside(doc, id, menu) && enabled(doc, id))
-                .collect();
-            if items.is_empty() {
-                return OnControls::Pass;
-            }
-            let at = focused.and_then(|id| items.iter().position(|&item| item == id));
-            let last = items.len() - 1;
-            let next = match (key, at) {
-                (ControlKey::Down, Some(at)) if at < last => at + 1,
-                (ControlKey::Down, _) => 0,
-                (_, Some(at)) if at > 0 => at - 1,
-                _ => last,
-            };
-            doc.set_focus_to(items[next]);
-            in_view(doc, scroller_of(doc, menu, items[next]), items[next]);
-            OnControls::Moved
-        }
-    }
-}
-
-/// The box that scrolls a row of a menu: the theme menu's list for a theme,
-/// and otherwise the menu itself.
-fn scroller_of(
-    doc: &blitz_dom::BaseDocument,
-    menu: blitz_dom::NodeId,
-    row: blitz_dom::NodeId,
-) -> blitz_dom::NodeId {
-    let mut at = doc.get_node(row).and_then(|node| node.parent);
-    while let Some(id) = at.filter(|&id| id != menu) {
-        let node = doc.get_node(id);
-        if node.is_some_and(|node| {
-            node.attr(blitz_dom::LocalName::from("class"))
-                .is_some_and(|class| class.split(' ').any(|word| word == "theme-list"))
-        }) {
-            return id;
-        }
-        at = node.and_then(|node| node.parent);
-    }
-    menu
-}
-
-/// Scroll a menu taller than the window so that its focused row can be seen.
-/// Enter presses a row by clicking its middle, which misses a row that is
-/// out of sight.
-fn in_view(doc: &mut blitz_dom::BaseDocument, menu: blitz_dom::NodeId, row: blitz_dom::NodeId) {
-    let (Some(outer), Some(inner)) = (
-        doc.get_client_bounding_rect(menu),
-        doc.get_client_bounding_rect(row),
-    ) else {
-        return;
-    };
-    let Some(node) = doc.get_node(menu) else {
-        return;
-    };
-    // Blitz places a scrolled box as if its own scrolling moved it too.
-    let top = outer.y + node.scroll_offset().y + node.final_layout().border.top as f64;
-    let bottom =
-        outer.y + node.scroll_offset().y + outer.height - node.final_layout().border.bottom as f64;
-    let by = if inner.y < top {
-        inner.y - top
-    } else if inner.y + inner.height > bottom {
-        inner.y + inner.height - bottom
-    } else {
-        return;
-    };
-    doc.scroll_by(menu, 0.0, by, blitz_dom::ScrollBehavior::Instant);
-}
-
-/// After a button was pressed from the keyboard: the focus goes back to it, so
-/// that Tab carries on from there. Blitz moves the focus off a button that is
-/// clicked. A button the press took away leaves the focus to
-/// [`give_keyboard_back`].
-pub fn after_press(doc: &mut blitz_dom::BaseDocument, button: blitz_dom::NodeId) {
-    let tag = |doc: &blitz_dom::BaseDocument, id: blitz_dom::NodeId| {
-        doc.get_node(id)
-            .and_then(|node| node.element_data())
-            .map(|el| el.name.local.to_string())
-    };
-    let still_there = tag(doc, button).as_deref() == Some("button");
-    // Unless a field has it: a press that opens a field gives the field the
-    // keyboard.
-    let in_field = doc
-        .get_focussed_node_id()
-        .and_then(|id| tag(doc, id))
-        .is_some_and(|tag| tag == "input" || tag == "textarea");
-    if still_there && !in_field {
-        doc.set_focus_to(button);
-    }
-}
-
-/// A field that wants its caret at the end, once: `data-caret="end"`; or its
-/// whole contents selected, once: `data-caret="all …"`, which the find field
-/// asks for on every ⌘F with a new number after the word.
-///
-/// The find field comes back holding the query it went down with, and the
-/// editor Blitz builds for it puts the caret at the front, so typing landed in
-/// front of the old query. A component has no door to the editor — it is
-/// built by the layout *after* the mount — so this is answered where
-/// [`give_keyboard_back`] is: by the shell after every event, the redraw that
-/// laid the field out included, and by the harness in `settle`. The attribute
-/// comes off once the caret has moved, so nothing the reader does with it
-/// afterwards is undone. Dioxus never rewrites an attribute whose value has
-/// not changed, which is what lets the DOM take it away.
-pub const CARET: &str = "[data-caret]";
-
-/// Move every asking caret to the end of its field. `true` when one moved,
-/// which is a frame to draw.
-pub fn place_carets(doc: &mut blitz_dom::BaseDocument) -> bool {
-    let Ok(wants) = doc.query_selector_all(CARET) else {
-        return false;
-    };
-    let mut moved = false;
-    for id in wants {
-        let all = doc
-            .get_node(id)
-            .and_then(|node| node.attr(blitz_dom::LocalName::from("data-caret")))
-            .is_some_and(|asked| asked.starts_with("all"));
-        let mut placed = false;
-        doc.with_text_input(id, |mut driver| {
-            if all {
-                driver.select_all();
-            } else {
-                driver.move_to_text_end();
-            }
-            placed = true;
-        });
-        if !placed {
-            continue;
-        }
-        if let Some(element) = doc
-            .get_node_mut(id)
-            .and_then(|node| node.element_data_mut())
-        {
-            let name = element
-                .attrs
-                .iter()
-                .find(|attr| &*attr.name.local == "data-caret")
-                .map(|attr| attr.name.clone());
-            if let Some(name) = name {
-                element.attrs.remove(&name);
-            }
-        }
-        moved = true;
-    }
-    moved
-}
-
-/// A field a click moved the focus into has everything in it selected, so
-/// that typing replaces it — the number in a stepper, the page, a colour.
-/// Asked when the button comes up rather than when it goes down, because a
-/// press that slides a pixel is a drag to Blitz and would undo it; and left
-/// alone when that drag selected something of its own. A second click, into
-/// a field that already has the focus, puts the caret where it landed.
-pub fn select_on_arrival(
-    doc: &mut blitz_dom::BaseDocument,
-    before: Option<blitz_dom::NodeId>,
-) -> bool {
-    let Some(id) = doc.get_focussed_node_id().filter(|&id| Some(id) != before) else {
-        return false;
-    };
-    let mut selected = false;
-    doc.with_text_input(id, |mut driver| {
-        if driver.editor.raw_selection().is_collapsed() {
-            driver.select_all();
-            selected = true;
-        }
-    });
-    selected
-}
-
-/// A field the keyboard moved the focus into — Tab — puts its caret after
-/// what is in it. A click selects it instead: [`select_on_arrival`].
-/// `before` is whatever had the focus before the key, so a key typed into a
-/// field that already had it moves nothing. `true` when a
-/// caret moved, which is a frame to draw.
-pub fn caret_on_arrival(
-    doc: &mut blitz_dom::BaseDocument,
-    before: Option<blitz_dom::NodeId>,
-) -> bool {
-    let Some(id) = doc.get_focussed_node_id().filter(|&id| Some(id) != before) else {
-        return false;
-    };
-    let mut moved = false;
-    doc.with_text_input(id, |mut driver| {
-        driver.move_to_text_end();
-        moved = true;
-    });
-    moved
-}
-
-/// The reader's own root element, kept from the moment it mounts so that
-/// anything inside the window can hand the keyboard back to it.
-///
-/// **A component cannot take the focus for itself**: `set_focus_to` panics
-/// from inside the document borrow every handler is already holding, which is
-/// the whole of why [`KEYBOARD`] exists and why the root asks for the focus in
-/// its own `onmounted` rather than anywhere else. So it keeps the handle it
-/// asked with, and a field leaving on Escape spawns the same two lines against
-/// it.
-///
-/// Without this, Escape in a field could not mean "out of this field" without
-/// also meaning "out of this window": the key would reach the root's handler
-/// and close Settings from under somebody correcting six hexadecimal digits.
-pub type RootFocus = Signal<Option<std::rc::Rc<MountedData>>>;
-
-/// A number typed into a stepper that applies only the finished number, and
-/// not yet confirmed: what confirms it.
-///
-/// A press anywhere else confirms it before that press does anything, as a
-/// browser does. Blitz moves the focus after a click's handlers have run, so
-/// the field's blur comes too late: a typed zoom followed by a click on "Fit
-/// width" would undo the click. The root's `onpointerdown` calls this, since
-/// nothing in the reader stops a `pointerdown`. See `prefs::Stepper`.
-pub type Unconfirmed = Signal<Option<Callback<()>>>;
-
-/// Hand the keyboard back to the reader's root. See [`RootFocus`].
-pub fn leave_field(root: RootFocus) {
-    let Some(node) = root.peek().clone() else {
-        return;
-    };
-    let task = node.set_focus(true);
-    spawn(async move {
-        let _ = task.await;
-    });
-}
-
-/// What a field does with a key that is not its own Enter or Escape. Typing
-/// and the field's editing chords stay in it — see
-/// [`crate::keymap::edits_a_field`]: ⌘Z undoes the typing, never a
-/// highlight — and every other chord goes on to the keymap alone, so ⌘+
-/// still zooms while somebody types, and ⌘↑ goes to the top of the document
-/// without also moving the caret.
-pub fn field_keeps(event: &KeyboardEvent) {
-    let modifiers = event.modifiers();
-    if crate::keymap::edits_a_field(&event.key(), event.code(), modifiers)
-        || crate::keymap::plain(modifiers)
-    {
-        event.stop_propagation();
-    } else {
-        event.prevent_default();
-    }
 }
 
 /// The whole window.
@@ -8052,10 +7769,7 @@ pub fn Reader(
             crate::emit::after(
                 viewer.read().cursor_rests(),
                 notifying.clone(),
-                crate::emit::News {
-                    event: Event::CursorTimeout,
-                    target: None,
-                },
+                Event::CursorTimeout,
             );
         }
     };
@@ -8065,14 +7779,7 @@ pub fn Reader(
         let notifying = notifying.clone();
         move |token: Option<u64>| {
             let Some(token) = token else { return };
-            crate::emit::after(
-                STILL_TICK,
-                notifying.clone(),
-                crate::emit::News {
-                    event: Event::SweepTick(token),
-                    target: None,
-                },
-            );
+            crate::emit::after(STILL_TICK, notifying.clone(), Event::SweepTick(token));
         }
     };
 
@@ -8084,14 +7791,7 @@ pub fn Reader(
         let notifying = notifying.clone();
         move |token: Option<u64>| {
             let Some(token) = token else { return };
-            crate::emit::after(
-                STILL_TICK,
-                notifying.clone(),
-                crate::emit::News {
-                    event: Event::StillTick(token),
-                    target: None,
-                },
-            );
+            crate::emit::after(STILL_TICK, notifying.clone(), Event::StillTick(token));
         }
     };
 
@@ -8106,7 +7806,7 @@ pub fn Reader(
     // re-armed on every render, and the pill's effect, which also *writes* the
     // viewer, would dirty the component it had just been run by: a render, a
     // layout and a full paint per frame, 100% of a core with nobody touching
-    // the app. `tests/cost.rs` asserts the reader stops rendering.
+    // the app. `tests/settle.rs` asserts the reader stops rendering.
     //
     // **The notice puts itself away after four seconds.**
     //
@@ -8130,14 +7830,7 @@ pub fn Reader(
                 return;
             }
             let token = bump(&viewer.read().notice_token);
-            crate::emit::after(
-                NOTICE_LASTS,
-                notifying.clone(),
-                crate::emit::News {
-                    event: Event::NoticeTimeout(token),
-                    target: None,
-                },
-            );
+            crate::emit::after(NOTICE_LASTS, notifying.clone(), Event::NoticeTimeout(token));
         });
     }
 
@@ -8166,14 +7859,7 @@ pub fn Reader(
             if offers == last.replace(offers) {
                 return;
             }
-            crate::emit::after(
-                BACK_LASTS,
-                notifying.clone(),
-                crate::emit::News {
-                    event: Event::BackTimeout(offers),
-                    target: None,
-                },
-            );
+            crate::emit::after(BACK_LASTS, notifying.clone(), Event::BackTimeout(offers));
         });
     }
 
@@ -8198,14 +7884,7 @@ pub fn Reader(
             // into the book the reader is.
             let again = viewer.peek().bar_again();
             let token = again.unwrap_or_else(|| viewer.write().flash_bar());
-            crate::emit::after(
-                BAR_LASTS,
-                notifying.clone(),
-                crate::emit::News {
-                    event: Event::BarTimeout(token),
-                    target: None,
-                },
-            );
+            crate::emit::after(BAR_LASTS, notifying.clone(), Event::BarTimeout(token));
             // A zoom or a resize moves the scroll too, and is not a scroll.
             if viewer.read().relaid() || !viewer.peek().pill_wanted() {
                 return;
@@ -8214,14 +7893,7 @@ pub fn Reader(
             let Some(token) = again.or_else(|| viewer.write().flash_pill()) else {
                 return;
             };
-            crate::emit::after(
-                PILL_LASTS,
-                notifying.clone(),
-                crate::emit::News {
-                    event: Event::PillTimeout(token),
-                    target: None,
-                },
-            );
+            crate::emit::after(PILL_LASTS, notifying.clone(), Event::PillTimeout(token));
         });
     }
 
@@ -8240,14 +7912,7 @@ pub fn Reader(
                 return;
             }
             last.set(token);
-            crate::emit::after(
-                ZOOM_SETTLES,
-                notifying.clone(),
-                crate::emit::News {
-                    event: Event::ZoomSettled(token),
-                    target: None,
-                },
-            );
+            crate::emit::after(ZOOM_SETTLES, notifying.clone(), Event::ZoomSettled(token));
         });
     }
 
@@ -8282,13 +7947,16 @@ pub fn Reader(
     let still_anchor = held.still_anchor();
     // Built only when there is one to draw: this component renders on every
     // frame of a scroll, and the marker is up for a few seconds a session.
-    let mark = still_anchor
+    let (mark, ways_open) = still_anchor
         .map(|_| {
-            still_mark(
+            let ways = held.still_ways();
+            let mark = still_mark(
                 &crate::palette::hex(wearing.surface()),
                 &crate::palette::hex(wearing.line()),
                 &crate::palette::hex(wearing.muted()),
-            )
+                ways,
+            );
+            (mark, ways_named(ways))
         })
         .unwrap_or_default();
     let chrome = held.chrome();
@@ -8474,8 +8142,8 @@ pub fn Reader(
     // **A comment is edited in the card it was asked of**, where it is read;
     // the menu goes while it is. Its card beside the page when the menu was
     // opened over that card; the menu's own when it was opened over the
-    // passage, which is where the reader is looking — the caret going off to
-    // the margin was a surprise. A mark with no comment yet is written in
+    // passage, which is where the reader is looking, so the caret does not
+    // go off to the margin. A mark with no comment yet is written in
     // the menu too.
     let editing_note = match (&held.commenting, &held.mark_open) {
         (Some(_), None) => cards
@@ -8800,7 +8468,7 @@ pub fn Reader(
                 // **A drag with no button down is a release nobody heard.**
                 // Let go past the edge of the window, the button comes up
                 // over nothing, and Blitz gives that to `<html>`, above this
-                // handler — so the thumb, the sweep or the pen followed the
+                // handler — so the thumb, the sweep or the pen would follow the
                 // pointer for ever after.
                 if (resizing || sweeping || drawing || on_bar || carrying || boxing)
                     && event.held_buttons().is_empty()
@@ -8966,7 +8634,7 @@ pub fn Reader(
                     };
                     // **A wheel that moves nothing is not a scroll.** macOS
                     // sends one when two fingers land on the trackpad, which
-                    // is how every pinch begins, and it flashed the pill.
+                    // is how every pinch begins, and it would flash the pill.
                     if across == 0.0 && down == 0.0 {
                         return;
                     }
@@ -9133,6 +8801,7 @@ pub fn Reader(
                 if let Some((anchor_x, anchor_y)) = still_anchor {
                     div {
                         class: "still-anchor",
+                        "data-ways": "{ways_open}",
                         style: "left: {anchor_x - STILL_MARK / 2.0}px; top: {anchor_y - chrome - STILL_MARK / 2.0}px;",
                         svg {
                             view_box: "0 0 24 24",
@@ -9215,7 +8884,7 @@ pub fn Reader(
                             }
                         },
                         Icon { name: "close", stroke: ink.clone() }
-                        "Stop\npresenting"
+                        "Stop presenting"
                     }
                 }
             }
@@ -9224,11 +8893,10 @@ pub fn Reader(
                     button {
                         class: "toolbar-peek",
                         onclick: move |_| viewer.write().toggle_toolbar(),
-                        Icon { name: "down", stroke: ink.clone() }
-                        // Two lines, like the notice above it: "Show menu bar"
-                        // on one line beside an icon is a wide, low box that
-                        // reads as a strip of chrome rather than as a button.
-                        "Show\nmenu bar"
+                        Icon { name: "menubar", stroke: ink.clone() }
+                        // One line, with the icon beside it. On two lines the
+                        // icon would sit in the gap between them.
+                        "Show menu bar"
                     }
                 }
             }
@@ -10031,14 +9699,14 @@ fn Page(
                 // it; the root does that when the press gets there. **And so
                 // is the press that puts a menu away**: the View menu stays
                 // up on purpose, and the click on the page that closes it
-                // dropped the selection or began a new one.
+                // would otherwise drop the selection or begin a new one.
                 if viewer.read().press_spent() || viewer.read().menu.is_some() {
                     return;
                 }
                 // **From the window, not from the element**: a press on a link
                 // or a note bubbles up here with Blitz's element coordinates
                 // relative to *that* box, and a sweep begun on a citation
-                // selected text near the page's top left.
+                // would select text near the page's top left.
                 let client = event.client_coordinates();
                 let Some(on) = viewer.read().on_page(index, (client.x, client.y)) else {
                     return;
@@ -10243,10 +9911,10 @@ fn Page(
                         // popover up after it was turned off.
                         if words {
                             {
-                                let (eye, said) = if offering {
-                                    ("eyeOff", "Don't show this when selecting")
+                                let (eye, label, said) = if offering {
+                                    ("eyeOff", "Turn off", "Don't show this when selecting")
                                 } else {
-                                    ("eye", "Show this when selecting")
+                                    ("eye", "Turn on", "Show this when selecting")
                                 };
                                 rsx! {
                                     button {
@@ -10257,6 +9925,7 @@ fn Page(
                                         onclick: move |_| viewer.write().toggle_offering_markup(),
                                         Icon { name: eye, stroke: muted.clone(), class: "rest" }
                                         Icon { name: eye, stroke: ink.clone(), class: "hot" }
+                                        span { "{label}" }
                                     }
                                 }
                             }
@@ -10513,6 +10182,7 @@ fn GlanceView(chosen: Chosen, card: GlanceCard, viewer: Signal<Viewer>) -> Eleme
                 },
                 Icon { name: "eyeOff", stroke: crate::palette::hex(worn.muted()), class: "rest" }
                 Icon { name: "eyeOff", stroke: crate::palette::hex(worn.text), class: "hot" }
+                span { "Turn off" }
             }
         }
     };
@@ -10700,6 +10370,8 @@ mod compare;
 pub use compare::{ChangeRow, Comparing, OpenChange};
 mod dialogs;
 mod disk;
+mod focus;
+pub use focus::*;
 mod forms;
 mod ink;
 mod listen;

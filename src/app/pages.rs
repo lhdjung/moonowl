@@ -111,7 +111,7 @@ impl Viewer {
     fn write_picture(&mut self, page: usize, to: String) {
         let document = self.document.clone();
         let label = self.label(page);
-        let taken = self.on_thread(
+        self.on_thread(
             {
                 let to = to.clone();
                 move || crate::export::save_picture(&*document, page - 1, &to)
@@ -124,9 +124,6 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
     }
 
     /// "Save the text as a file…": asks where the text goes.
@@ -147,7 +144,7 @@ impl Viewer {
     /// that writes it, since reading a long book's text takes a while.
     fn write_text(&mut self, to: String) {
         let document = self.document.clone();
-        let taken = self.on_thread(
+        self.on_thread(
             {
                 let to = to.clone();
                 move || {
@@ -166,9 +163,6 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
     }
 
     /// The Document menu's "Flattened": where to save a copy with its
@@ -189,7 +183,7 @@ impl Viewer {
     /// The flattened copy written to `to`, on a thread.
     fn write_flattened(&mut self, to: String) {
         let document = self.document.clone();
-        let taken = self.on_thread_without_document(
+        self.on_thread_without_document(
             {
                 let to = to.clone();
                 move || crate::export::flattened(&*document, &to)
@@ -223,9 +217,6 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
     }
 
     /// The files the sidebar lists: the document's own, then those attached
@@ -294,26 +285,33 @@ impl Viewer {
         }
         let document = self.document.clone();
         let name = name.to_string();
-        let taken = self.on_thread_without_document(
+        self.on_thread_without_document(
             {
                 let to = to.clone();
                 move || {
                     let (path, password) = (document.path(), document.password());
-                    if crate::objects::save_attachment(path, password, carried, &name, &to)? {
-                        return Ok(());
-                    }
-                    let opened = crate::render::open_with(path, password)
-                        .map_err(|refused| refused.to_string())?;
-                    let bytes = match carried {
-                        Carried::OnPage { page, index } => {
-                            opened.attached_file(page, index, &name)?
+                    let save = || {
+                        if crate::objects::save_attachment(path, password, carried, &name, &to)? {
+                            return Ok(());
                         }
-                        Carried::Own(index) if opened.attachments().get(index) == Some(&name) => {
-                            opened.attachment(index)?
-                        }
-                        Carried::Own(_) => return Err("The file is gone.".to_string()),
+                        let opened = crate::render::open_with(path, password)
+                            .map_err(|refused| refused.to_string())?;
+                        let bytes = match carried {
+                            Carried::OnPage { page, index } => {
+                                opened.attached_file(page, index, &name)?
+                            }
+                            Carried::Own(index)
+                                if opened.attachments().get(index) == Some(&name) =>
+                            {
+                                opened.attachment(index)?
+                            }
+                            Carried::Own(_) => return Err("The file is gone.".to_string()),
+                        };
+                        crate::atomic_write(std::path::Path::new(&to), &bytes)
                     };
-                    crate::atomic_write(std::path::Path::new(&to), &bytes)
+                    save()?;
+                    crate::config::carry_quarantine(path.as_ref(), to.as_ref());
+                    Ok(())
                 }
             },
             move |viewer, saved| match saved {
@@ -329,9 +327,6 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
     }
 
     /// Say `notice`, with a button beside it that opens `path` in a window
@@ -818,11 +813,8 @@ impl Viewer {
                 Ok(found) => viewer.write_recognised_copy(found, to),
             },
         );
-        self.notice = match taken {
-            true => "Recognising the text of the scanned pages…".into(),
-            false => self.why_refused().into(),
-        };
         if taken {
+            self.notice = "Recognising the text of the scanned pages…".into();
             self.stoppable = Some((Stoppable::Recognising, stop));
         }
     }
@@ -836,7 +828,7 @@ impl Viewer {
         let pages = found.iter().filter(|(_, words)| !words.is_empty()).count();
         let from = self.document.path().to_string();
         let read = self.document.stamp();
-        let taken = self.on_thread(
+        self.on_thread(
             {
                 let to = to.clone();
                 move || crate::ocr::write(&from, read, &found, &to)
@@ -858,9 +850,6 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
     }
 }
 

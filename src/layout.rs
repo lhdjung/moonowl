@@ -127,6 +127,10 @@ pub const PAD_Y: f64 = 20.0;
 /// be genuinely absent rather than merely invisible.
 pub const OVERSCAN: f64 = 0.6;
 
+/// The most pages mounted at once. Only a document of pages a pixel or less
+/// tall, with no gap between them, comes near it.
+pub const MOUNTED_MOST: usize = 256;
+
 /// The ceiling on one page's bitmap, because a page drawn at more pixels than
 /// the screen can show is bytes nobody reads.
 /// Past it the page is stretched, and what is on screen is drawn sharp over
@@ -161,7 +165,7 @@ fn upright(offset: f64, rotation: u32) -> f64 {
 /// A place on a page under one crop, said under another. **Nought stays
 /// nought**: the top of a page is landing on the space above it (see
 /// [`Layout::scroll_target`]), and turned into the fraction the trimmed-off
-/// margin takes up it went negative, missed that rule, and showed the foot of
+/// margin takes up it would go negative, miss that rule, and show the foot of
 /// the page before. Anything else is kept on the page.
 fn between(anchor: Anchor, from: Option<Crop>, to: Option<Crop>) -> Anchor {
     if anchor.offset == 0.0 {
@@ -478,7 +482,7 @@ impl Layout {
         };
         // A page alone in a row of a spread, the cover or an odd last page,
         // is scaled as one page of a pair: filling the width by itself, it
-        // was twice the size of the pages after it.
+        // would be twice the size of the pages after it.
         let scale_for_row = |row: &[usize]| {
             let alone = row.len() == 1 && self.spread != Spread::Single;
             let (pages, gaps) = if alone {
@@ -629,6 +633,24 @@ impl Layout {
             wanted.push(index);
             index += 1;
         }
+        if wanted.len() > MOUNTED_MOST {
+            // Past the cap, the pages kept are those around the top of the
+            // window, so what is on screen is mounted before the overscan
+            // above it. A row is kept whole or not at all.
+            let seen = self.first_box_ending_after(scroll_top);
+            let at = wanted.partition_point(|&index| index < seen);
+            let mut start = at.saturating_sub(MOUNTED_MOST / 4);
+            start = start.min(wanted.len() - MOUNTED_MOST);
+            while self.row_of(wanted[start])[0] != wanted[start] {
+                start += 1;
+            }
+            let mut end = (start + MOUNTED_MOST).min(wanted.len());
+            while end < wanted.len() && self.row_of(wanted[end])[0] != wanted[end] {
+                end -= 1;
+            }
+            wanted.truncate(end);
+            wanted.drain(..start);
+        }
         wanted
     }
 
@@ -669,13 +691,15 @@ impl Layout {
             Mode::Paged => self.current.clamp(1, self.sizes.len()) - 1,
             // The tallest page of the row, so the offset is a fraction of
             // something the scroll position is actually inside: beside a
-            // short page, two thirds down the tall one clamped to the short
-            // one's bottom and came back well above where the reader was.
+            // short page, two thirds down the tall one would clamp to the
+            // short one's bottom and come back well above where the reader
+            // was.
             Mode::Continuous => {
                 let mut found = self.last_box_starting_above(scroll_top);
                 // **In the space above a page is on that page**, because that
                 // is where landing on it puts the scroll: read as the bottom of
-                // the page before, going to page 5 twice was a jump from 4.
+                // the page before, going to page 5 twice would be a jump from
+                // 4.
                 let next = self.row_of(found).last().map_or(found, |&last| last + 1);
                 if let Some(Some(page)) = self.boxes.get(next) {
                     if scroll_top >= page.top - page.above - 0.5 {
@@ -839,7 +863,8 @@ impl Layout {
     /// The same place on the page under another crop: `anchor` is a fraction
     /// of the page as this layout trims it, and the answer is the fraction
     /// that shows the same line under `crop`. Keeping the fraction instead
-    /// put the reader a margin's height away from where they were reading.
+    /// would put the reader a margin's height away from where they were
+    /// reading.
     pub fn recropped(&self, anchor: Anchor, crop: Option<Crop>) -> Anchor {
         between(anchor, self.crop, crop)
     }
@@ -847,8 +872,8 @@ impl Layout {
     /// A place on the page as this layout shows it, said of the whole page
     /// standing upright — which is how a place is kept, because a document
     /// is opened untrimmed and its margins are measured afterwards, and a
-    /// turn is not kept at all. Kept trimmed, every reopen was trimmed twice
-    /// and landed a margin's height off.
+    /// turn is not kept at all. Kept trimmed, every reopen would be trimmed
+    /// twice and land a margin's height off.
     ///
     /// A quarter turn puts the page's height across the screen, so a place
     /// down a page turned on its side is kept as the page's top.
@@ -872,8 +897,8 @@ impl Layout {
     /// A place down a page as the document states it — a fraction of the
     /// page's own unturned height, which is what a link or a contents entry
     /// carries — as a fraction of the box the reader sees, turned and
-    /// trimmed. Applied as it came, a heading 12% down a page with 9% trimmed
-    /// off its top landed above the window.
+    /// trimmed. Applied as it comes, a heading 12% down a page with 9% trimmed
+    /// off its top would land above the window.
     ///
     /// A quarter turn puts the page's height across the screen, and a
     /// destination says nothing about where across it lands, so that is the
@@ -1121,6 +1146,32 @@ mod tests {
             (layout.scroll_target(anchor) - at).abs() < 1.0,
             "{anchor:?}"
         );
+    }
+
+    /// Pages too short to see, with no gap between them, all sit at the
+    /// same place, and only so many of them are mounted.
+    #[test]
+    fn pages_too_short_to_see_are_not_all_mounted() {
+        // A pixel tall, so the overscan above the window alone holds more
+        // pages than the cap.
+        let page = Size {
+            width: 612.0,
+            height: 0.7,
+        };
+        let mut layout = Layout::new(vec![page; 5000]);
+        layout.viewport = Size {
+            width: 900.0,
+            height: 700.0,
+        };
+        layout.gap = 0.0;
+        layout.relayout();
+        assert_eq!(layout.mounted(0.0).len(), MOUNTED_MOST);
+        // Further down, what is on screen is mounted, not only the overscan
+        // above it.
+        let top = layout.boxes[2000].unwrap().top;
+        let mounted = layout.mounted(top);
+        assert_eq!(mounted.len(), MOUNTED_MOST);
+        assert!(mounted.contains(&2000), "{:?}", mounted.first());
     }
 
     #[test]

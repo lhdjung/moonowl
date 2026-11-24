@@ -11,7 +11,7 @@
 //! The file is read a line at a time and never held whole, since a long
 //! book's runs to tens of megabytes once unpacked.
 
-use std::io::BufRead;
+use std::io::{BufRead, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -91,6 +91,9 @@ struct Reader {
     inputs: Vec<(usize, PathBuf)>,
 }
 
+/// The longest line read, which is far past any file name TeX writes.
+const LINE_MOST: u64 = 1 << 16;
+
 /// Scaled points to a PDF point: 65,536 scaled points to a TeX point, and
 /// 72.27 TeX points to the 72 points of an inch a PDF counts in.
 const SCALED: f64 = 72.0 / 72.27 / 65536.0;
@@ -118,14 +121,22 @@ impl Reader {
         }
     }
 
-    /// The next record and its page, or `None` at the end of the file.
+    /// The next record and its page, or `None` at the end of the file, or
+    /// at a line longer than [`LINE_MOST`].
     fn next(&mut self) -> Option<(usize, Record)> {
         // Read as bytes, because TeX writes a file name in whatever encoding
         // the system gave it, which need not be UTF-8.
         let mut bytes = Vec::new();
         loop {
             bytes.clear();
-            if self.lines.read_until(b'\n', &mut bytes).ok()? == 0 {
+            let read = (&mut self.lines)
+                .take(LINE_MOST)
+                .read_until(b'\n', &mut bytes)
+                .ok()?;
+            // A line this long is no SyncTeX record, and reading on would
+            // hold all of it in memory: a file compressed from gigabytes
+            // with no line break would.
+            if read == 0 || (read as u64 == LINE_MOST && bytes.last() != Some(&b'\n')) {
                 return None;
             }
             if let Some(input) = bytes.strip_prefix(b"Input:") {
@@ -531,6 +542,16 @@ mod tests {
             use std::os::unix::ffi::OsStrExt;
             assert_eq!(reader.inputs[0].1.as_os_str().as_bytes(), b"\xdcbung.tex");
         }
+    }
+
+    /// A line with no end in sight ends the file, rather than being read
+    /// whole into memory.
+    #[test]
+    fn a_line_with_no_end_ends_the_file() {
+        let mut file = b"SyncTeX Version:1\nContent:\n{1\n".to_vec();
+        file.extend(std::iter::repeat_n(b'x', 1 << 20));
+        let mut reader = Reader::of(Box::new(std::io::Cursor::new(file)));
+        assert!(reader.next().is_none());
     }
 
     #[test]

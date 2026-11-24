@@ -37,7 +37,7 @@ fn the_settings_window_opens_on_its_key_and_leaves_on_escape() {
     assert!(!open(&reader));
 
     // And it comes back to the page it was left on, which is what a window
-    // with a nav column is expected to do — `currentPage` in `settings.ts`.
+    // with a nav column is expected to do.
     reader.press_chord("mod+,");
     reader.click_nth(".nav-item", 3);
     assert_eq!(page(&reader), "Keyboard");
@@ -49,11 +49,10 @@ fn the_settings_window_opens_on_its_key_and_leaves_on_escape() {
 #[test]
 fn the_cog_opens_a_menu_and_the_menu_opens_the_window() {
     // ⌘, is not discoverable, and the app has a Settings button at the end of
-    // its bar. **What the button opens is a menu**, not the window —
-    // `showSettingsMenu` in `main.ts`: the switches somebody reaches for while
-    // reading are one press, and "All settings…" at the foot of it is the way
-    // to the rest. Going straight to the window put a window over the document
-    // for a switch.
+    // its bar. **What the button opens is a menu**, not the window: the
+    // switches somebody reaches for while reading are one press, and "All
+    // settings…" at the foot of it is the way to the rest. Going straight to
+    // the window would put a window over the document for a switch.
     let mut reader = book();
     reader.click(".chip.settings");
     assert!(!open(&reader), "the window is not up");
@@ -74,8 +73,7 @@ fn a_press_beside_the_window_closes_it_and_a_press_inside_does_not() {
     reader.click_at(x, y);
     assert!(open(&reader), "a press inside stays inside");
 
-    // Beside it: the scrim's own press, which is `showWindow`'s scrim in the
-    // app doing the same thing.
+    // Beside it: the scrim's own press.
     reader.click_at(20.0, 500.0);
     assert!(!open(&reader));
 }
@@ -88,8 +86,7 @@ fn a_switch_changes_the_reader_and_is_written_down() {
 
     // "Trim the margins" is the fourth field on the Reading page and the
     // first switch on it. **What is asserted is the page**, because that is
-    // where a reader would see it — the toolbar used to carry a Trim chip and
-    // does not any more, the app having never had one either: trimming is a
+    // where a reader would see it. The toolbar has no Trim chip: trimming is a
     // setting somebody turns on for a scanned book and leaves on, not a thing
     // pressed twice in an hour.
     // Off, the knob is at the start of its track, not in the middle of it.
@@ -187,7 +184,7 @@ fn a_number_can_be_stepped_and_typed() {
 
     // And a typed value is clamped to the range but never snapped to the
     // step: the step is how far one press moves, not a list of the answers
-    // allowed. `ui.stepper` in the app says the same.
+    // allowed.
     //
     // A click into the field selects what is in it, so typing replaces it.
     reader.click(".step-field");
@@ -212,10 +209,10 @@ fn a_number_can_be_stepped_and_typed() {
 }
 
 /// **Every field on the page can be typed into, and a press elsewhere leaves
-/// it.** Each stepper used to ask for the keyboard, and the innermost asking
-/// wins every event — so the last one on the page ("Wait before hiding it")
-/// had the focus the moment the window opened and took it back from any other
-/// field clicked into.
+/// it.** A stepper does not ask for the keyboard: the innermost asker wins
+/// every event, so the last one on the page ("Wait before hiding it") would
+/// have the focus the moment the window opened and take it back from any
+/// other field clicked into.
 #[test]
 fn any_stepper_takes_the_keyboard_and_a_press_elsewhere_gives_it_back() {
     let mut reader = Reader::open_with(
@@ -325,8 +322,8 @@ fn a_field_reached_by_tab_has_its_caret_at_the_end() {
 
 #[test]
 fn the_keyboard_page_is_drawn_from_the_keymap() {
-    // A hand-written table of shortcuts drifts the moment a key moves — the
-    // app's did, naming ⌘T twice — so every row is an action out of the
+    // A hand-written table of shortcuts drifts the moment a key moves, so
+    // every row is an action out of the
     // keymap with whatever `keys.toml` gave it.
     let mut reader = Reader::open_with(
         &Reader::book(),
@@ -421,8 +418,8 @@ fn the_link_colour_is_offered_only_while_recolouring() {
     assert!(has_links(&reader), "{:?}", reader.text_all(".field-label"));
 }
 
-/// Five buttons under the theme grid for a theme of your own, and the last of
-/// them — Delete — was cut off at the right. The row wraps instead.
+/// Five buttons under the theme grid for a theme of your own. The row wraps,
+/// so the last of them, Delete, is not cut off at the right.
 #[test]
 fn every_theme_button_fits_inside_the_page() {
     let temp = std::fs::canonicalize(std::env::temp_dir()).expect("a temp directory");
@@ -456,7 +453,8 @@ fn every_theme_button_fits_inside_the_page() {
 }
 
 /// Import and export in the theme editor are greyed out exactly while the
-/// draft is unsaved — and only then, which `disabled="false"` got wrong.
+/// draft is unsaved — and only then. `disabled="false"` would still disable
+/// them.
 #[test]
 fn the_editor_greys_out_import_and_export_only_while_unsaved() {
     let temp = std::fs::canonicalize(std::env::temp_dir()).expect("a temp directory");
@@ -514,7 +512,7 @@ fn dark_mode_is_a_key_and_a_switch_and_they_are_the_same_thing() {
     let mut reader = Reader::open(&Reader::book());
     assert_eq!(reader.state().theme, "Moonowl Light");
 
-    // ⌘D, which until now answered "Dark mode is not built yet".
+    // ⌘D.
     reader.press_chord("mod+d");
     assert_eq!(reader.state().theme, "Moonowl Dark");
     reader.press_chord("mod+d");
@@ -674,10 +672,10 @@ fn a_machine_that_will_not_say_leaves_the_reader_alone() {
 /// **A page of settings starts at the top of its box.**
 ///
 /// The pane scrolls — Reading is taller than the window — and the offset
-/// belonged to the node rather than to what was in it, so leaving a scrolled
-/// Reading for About kept the scroll and About, which is four short paragraphs,
-/// sat entirely above the top of the box: the reader saw a blank page and
-/// reported the About page as empty.
+/// belongs to the node rather than to what is in it. If leaving a scrolled
+/// Reading for About kept the scroll, About, which is four short paragraphs,
+/// would sit entirely above the top of the box, and the reader would see a
+/// blank page.
 #[test]
 fn a_page_opened_after_a_scrolled_one_starts_at_the_top() {
     let mut reader = book();
@@ -725,10 +723,9 @@ fn about_names_the_maker_and_links_the_source() {
 
 /// **A theme card shows a page, not a palette.**
 ///
-/// Two bars of colour said what a theme was made of; the app's card says what
-/// reading under it looks like — a word of body text and a link, each in the
-/// ink it would really be drawn in. The link is the half that was missing:
-/// nothing in this window showed a theme's link colour, which is a colour a
+/// The card says what reading under a theme looks like — a word of body text
+/// and a link, each in the ink it would really be drawn in. The link matters:
+/// nothing else in this window shows a theme's link colour, which is a colour a
 /// reader picks a theme for and cannot otherwise see until they meet a link.
 #[test]
 fn every_theme_card_shows_its_own_link_colour() {
@@ -751,8 +748,8 @@ fn every_theme_card_shows_its_own_link_colour() {
 
 /// **Naming a theme is not making one per letter.** The draft is shown by
 /// standing it in the theme list, and a theme with no file has no id to be
-/// found by — so every keystroke appended another copy, and a reader typing
-/// "Brownie" watched B, Br, Bro and four more pile up in the Theme menu.
+/// found by. If every keystroke appended another copy, a reader typing
+/// "Brownie" would see B, Br, Bro and four more pile up in the Theme menu.
 #[test]
 fn naming_a_new_theme_leaves_one_theme_in_the_list() {
     let mut reader = book();
@@ -764,7 +761,7 @@ fn naming_a_new_theme_leaves_one_theme_in_the_list() {
     reader.click(".text-field");
     reader.type_text("Brownie");
     // Out of the window, which saves the draft: the Theme menu in the bar is
-    // where the pile showed, so what is left is the shipped list and one
+    // where a pile would show, so what is left is the shipped list and one
     // theme beside it. Escape twice, because it leaves the field before it
     // leaves the window — see
     // `escape_leaves_the_field_then_the_picker_then_the_window`.
@@ -818,10 +815,10 @@ fn the_picker_fits_the_window_and_lines_up() {
 }
 
 /// **A hex field holds what is typed, and complains rather than correcting.**
-/// It used to show the theme's colour and pass on only what parsed, so every
-/// keystroke that was not yet a colour was rewritten under the caret: a
-/// Backspace took a character out and the field put it straight back, which
-/// made editing six digits a fight.
+/// If it showed the theme's colour and passed on only what parsed, every
+/// keystroke that was not yet a colour would be rewritten under the caret: a
+/// Backspace would take a character out and the field would put it straight
+/// back, which makes editing six digits a fight.
 #[test]
 fn a_colour_can_be_typed_wrong_on_the_way_to_being_right() {
     let mut reader = book();
@@ -895,8 +892,8 @@ fn an_unreadable_colour_reverts_when_the_field_is_left() {
 }
 
 /// **A grid of colours to point at**, because six hexadecimal digits is a
-/// question most readers cannot answer — and the app had the system's own
-/// picker through `<input type="color">`, which Blitz has not.
+/// question most readers cannot answer — and Blitz has no
+/// `<input type="color">` to ask the system's own picker with.
 #[test]
 fn a_colour_can_be_chosen_from_the_swatches() {
     let mut reader = book();
@@ -961,8 +958,8 @@ fn click_in(reader: &mut Reader, selector: &str, at: (f32, f32)) {
 }
 
 /// **The square is how every other colour is reached.** The forty swatches are
-/// a shortcut; without a spectrum behind them, any colour outside the grid was
-/// a question of six hexadecimal digits — and Blitz has no
+/// a shortcut; without a spectrum behind them, any colour outside the grid
+/// would be a question of six hexadecimal digits — and Blitz has no
 /// `<input type="color">` to ask it with.
 ///
 /// The corners are what this checks, because they are the only points whose
@@ -1008,8 +1005,8 @@ fn the_square_reaches_the_colours_the_swatches_do_not() {
 
 /// **Escape is a ladder, and the window is its last rung.** A field is nearer
 /// than the picker under it and the picker is nearer than the window around
-/// them, so thinking better of six hexadecimal digits took the whole theme
-/// editor with it — the key went straight past both to `Action::Dismiss`.
+/// them, so thinking better of six hexadecimal digits leaves the field and
+/// not the whole theme editor.
 #[test]
 fn escape_leaves_the_field_then_the_picker_then_the_window() {
     let mut reader = book();
@@ -1085,8 +1082,8 @@ fn a_second_field_does_not_inherit_the_first_ones_hue() {
 }
 
 /// **An action button wears the theme that is on, not the one it was drawn
-/// under.** "New theme…" kept Moonowl Light's dark ink after a dark theme was
-/// chosen, which on a dark surface is no label at all.
+/// under.** Otherwise "New theme…" would keep Moonowl Light's dark ink after
+/// a dark theme is chosen, which on a dark surface is no label at all.
 #[test]
 fn an_action_button_takes_a_new_themes_ink() {
     let mut reader = Reader::open_with(
@@ -1119,8 +1116,8 @@ fn an_action_button_takes_a_new_themes_ink() {
 /// **A label that cannot be selected does not offer to be.** Blitz shows the
 /// text cursor over any text whose `user-select` is not `none`, and a bare
 /// label in a flex button sits in an anonymous box that `.root *` never
-/// reaches — so the nav column showed an I-beam over "Reading". A field keeps
-/// its own.
+/// reaches, which would put an I-beam over "Reading" in the nav column. A
+/// field keeps its own.
 #[test]
 fn the_nav_column_shows_the_arrow_and_a_field_the_caret() {
     let mut reader = book();
@@ -1184,7 +1181,7 @@ fn a_windows_text_can_be_selected() {
 
 /// **Two presses on a window's words select the word, three the paragraph**,
 /// as they do in a field — and what is selected takes the theme's selection
-/// colours: the fixed light blue under Moonowl Dark's grey was unreadable.
+/// colours, since a fixed light blue would be unreadable under Moonowl Dark's grey.
 #[test]
 fn a_windows_words_select_by_the_word_and_by_the_paragraph() {
     let mut reader = book();
@@ -1272,8 +1269,8 @@ fn a_right_click_on_a_windows_selection_copies_it() {
     assert!(reader.harness.query(".copy-menu").is_none());
 }
 
-/// **Keys about the document stay out of Settings.** Space and `j` scrolled
-/// the document behind the window, and `t` changed its theme.
+/// **Keys about the document stay out of Settings.** Space and `j` do not
+/// scroll the document behind the window, and `t` does not change its theme.
 #[test]
 fn keys_behind_settings_do_not_reach_the_document() {
     let mut reader = book();
@@ -1317,8 +1314,8 @@ fn a_theme_file_that_does_not_read_is_named() {
 }
 
 /// **Closing Settings saves the theme being edited**, however unfinished:
-/// a stray click beside the window lost the work. The draft also waited to be
-/// worn again at the next ⌘, — over whatever theme had been chosen since.
+/// a stray click beside the window does not lose the work. The draft is not
+/// worn again at the next ⌘, over whatever theme has been chosen since.
 #[test]
 fn closing_settings_saves_the_draft() {
     let mut reader = book();
@@ -1367,8 +1364,8 @@ fn closing_an_untouched_draft_saves_nothing() {
 }
 
 /// **The system switching light and dark leaves the draft on screen.** It
-/// wore the other half of the pair over the editor, which went on showing a
-/// theme the page was no longer in.
+/// does not wear the other half of the pair over the editor, which would go
+/// on showing a theme the page is no longer in.
 #[test]
 fn the_system_switching_leaves_the_draft_being_edited() {
     let mut reader = Reader::open_with(
@@ -1388,8 +1385,8 @@ fn the_system_switching_leaves_the_draft_being_edited() {
 
 /// **A colour typed into the editor leaves every sentence wrapped at its own
 /// width.** It restyles the whole window, and a sentence measured at a
-/// narrower width on the way was painted in those lines, over a box the
-/// height of its real ones: each note ran into the setting below it.
+/// narrower width on the way must not be painted in those lines, over a box
+/// the height of its real ones, or each note runs into the setting below it.
 #[test]
 fn editing_a_colour_keeps_the_notes_in_their_boxes() {
     let mut reader = book();
@@ -1420,7 +1417,7 @@ fn editing_a_colour_keeps_the_notes_in_their_boxes() {
 }
 
 /// **A selection colour emptied follows the accent again**, and a new theme
-/// starts out following it: the editor copied the worn theme's own.
+/// starts out following it rather than copying the worn theme's own.
 #[test]
 fn an_emptied_selection_colour_follows_the_accent() {
     let mut reader = book();
@@ -1471,7 +1468,7 @@ fn the_theme_cards_line_up() {
 }
 
 /// **Opening Settings leaves the theme alone.** A theme of the reader's own,
-/// worn and then left for another, came back at the next ⌘,.
+/// worn and then left for another, does not come back at the next ⌘,.
 #[test]
 fn opening_settings_keeps_the_theme_chosen_last() {
     let dir = std::env::temp_dir().join(format!("moonowl-prefs-own-{}", std::process::id()));

@@ -66,8 +66,8 @@ pub struct Ramped {
     pub selection: Vec<[f32; 4]>,
     /// **A highlight on its way into the file**, in the colour it was
     /// chosen in. Writing it is a rewrite, a reopen and a redraw — half a
-    /// second on a paper — and the passage went back to plain for all of
-    /// it. Painted here it is on the page the frame the swatch is pressed,
+    /// second on a paper — and the passage would go back to plain for all
+    /// of it. Painted here it is on the page the frame the swatch is pressed,
     /// and it stays in the texture until the next draft's pixels, which
     /// carry the real one, replace them: see [`PageWidget::ensure`].
     ///
@@ -465,8 +465,8 @@ fn render_thread(index: usize, middle: Arc<AtomicUsize>, detail: bool, job: Job)
                     jobs.swap_remove(nearest).job
                 };
                 // One page that panics is one page not drawn. Uncaught, it
-                // took the thread and every page after it for the rest of
-                // the process.
+                // would take the thread and every page after it for the rest
+                // of the process.
                 let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
             })
             .expect("a render thread");
@@ -864,10 +864,11 @@ impl PageWidget {
     /// shown to the theme's selection area, its ink as shown to the selected
     /// text. See `regions.wgsl`.
     ///
-    /// **Solved, as [`PageWidget::mark_ramp`] is**, not named. Named ends ran
-    /// from black to white, and a recoloured page is neither: Solarized
-    /// Light's selected words came out at 2.6:1 on their ground where the
-    /// theme asks for 8.8:1, and most other themes lost half of theirs.
+    /// **Solved, as [`PageWidget::mark_ramp`] is**, not named. Named ends
+    /// would run from black to white, and a recoloured page is neither:
+    /// Solarized Light's selected words would come out at 2.6:1 on their
+    /// ground where the theme asks for 8.8:1, and most other themes would lose
+    /// half of theirs.
     fn selection_ramp(theme: &Palette) -> (crate::recolor::End, crate::recolor::End) {
         let (paper, ink) = Self::shown(theme);
         Self::through(paper, ink, theme.selection_area, theme.selection_text)

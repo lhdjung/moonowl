@@ -10,8 +10,8 @@
 //!
 //! **The work is done in a process of its own.** The memory lopdf uses
 //! stays with the process that used it, even once it is freed: a 34MB scan
-//! left the process 120MB larger, and handing the memory back to the
-//! system (`malloc_zone_pressure_relief`) freed none of it. So the app runs
+//! leaves the process 120MB larger, and handing the memory back to the
+//! system (`malloc_zone_pressure_relief`) frees none of it. So the app runs
 //! its own executable with [`APART`] as its argument, sends it a [`Work`]
 //! and the document, and reads back the result; the memory goes when that
 //! process ends. Where that process cannot be started, and under

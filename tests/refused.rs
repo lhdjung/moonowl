@@ -92,9 +92,9 @@ fn page_rect(reader: &Reader) -> (u32, u32, u32, u32) {
     )
 }
 
-/// **A page that will not draw is asked once.** The answer was remembered on
-/// the GPU path and not on the CPU one, so every frame went back to pdfium —
-/// under its one lock — for a page that was never going to arrive.
+/// **A page that will not draw is asked once.** The answer is remembered on
+/// the CPU path as well as the GPU one, or every frame would go back to
+/// pdfium — under its one lock — for a page that is never going to arrive.
 #[test]
 fn a_page_that_will_not_draw_is_not_asked_again() {
     let document = Refusing::new();
@@ -147,4 +147,70 @@ fn a_page_keeps_its_pixels_while_the_document_is_let_go_of() {
     reader.settle();
     let after = reader.screenshot().mean(page_rect(&reader));
     assert!(after[0] < 200.0, "the page never came back: {after:?}");
+}
+
+/// Three pages, the first of which to be read panics when its links are.
+#[derive(Default)]
+struct Panicking {
+    asked: std::sync::Mutex<Vec<usize>>,
+}
+
+impl PageSource for Panicking {
+    fn pages(&self) -> usize {
+        3
+    }
+
+    fn size_of(&self, _index: usize) -> Size {
+        Size {
+            width: 200.0,
+            height: 200.0,
+        }
+    }
+
+    fn render(
+        &self,
+        _index: usize,
+        width: u32,
+        height: u32,
+        _view: View,
+        take: &mut dyn FnMut(Bitmap),
+    ) -> Result<(), String> {
+        let bgra = vec![255u8; (width as usize) * (height as usize) * 4];
+        take(Bitmap {
+            width,
+            height,
+            bgra: &bgra,
+            drew_in: 0.0,
+        });
+        Ok(())
+    }
+
+    fn links_of(&self, index: usize) -> Vec<moonowl::render::Link> {
+        let first = {
+            let mut asked = self.asked.lock().unwrap();
+            asked.push(index);
+            asked.len() == 1
+        };
+        if first {
+            panic!("a page that cannot be read");
+        }
+        Vec::new()
+    }
+
+    fn opened_in(&self) -> f64 {
+        0.0
+    }
+}
+
+/// A page whose links cannot be read leaves the other pages' links to be
+/// read.
+#[test]
+fn a_page_that_panics_does_not_stop_the_others_being_read() {
+    let document = Arc::new(Panicking::default());
+    let mut reader = Reader::over(document.clone(), Options::default());
+    reader.settle();
+    let mut asked = document.asked.lock().unwrap().clone();
+    asked.sort();
+    asked.dedup();
+    assert!(asked.len() > 1, "{asked:?}");
 }

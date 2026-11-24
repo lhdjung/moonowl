@@ -46,11 +46,11 @@ fn socket_path(dir: &Path) -> PathBuf {
 /// reader asked for.
 ///
 /// **The claim is a lock on a file beside the socket, and the socket is only
-/// the door.** It was the socket alone — connect, and on failure remove the
-/// file and bind — and three documents double-clicked at once are three
+/// the door.** With the socket alone — connect, and on failure remove the
+/// file and bind — three documents double-clicked at once are three
 /// launches in the same instant: all fail to connect, one binds, and the next
-/// one's `remove_file` takes the live socket away and binds its own. Two
-/// readers, one of them unreachable for ever. A socket file cannot be told
+/// one's `remove_file` takes the live socket away and binds its own. That
+/// leaves two readers, one of them unreachable for ever. A socket file cannot be told
 /// from a corpse without removing it, and a lock can: the kernel drops it with
 /// the process, however the process went.
 #[cfg(unix)]
@@ -59,6 +59,13 @@ pub fn claim(dir: &Path, path: Option<&str>) -> Claim {
 
     let socket = socket_path(dir);
     let _ = std::fs::create_dir_all(dir);
+    // The folder holds the reader's signatures, the copies undo puts back
+    // and the passages they marked, so only they may look inside it. A home
+    // folder others can read is common on Linux.
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    }
     let Ok(lock) = std::fs::File::create(dir.join("instance.lock")) else {
         return Claim::Alone;
     };
@@ -117,7 +124,7 @@ const QUIT_LASTS: std::time::Duration = std::time::Duration::from_secs(10);
 /// Tried for a while rather than once: the holder takes the lock and *then*
 /// binds, and a launch in the same instant arrives between the two. **Handed
 /// over is answered**: a holder that is quitting reads the path and says
-/// nothing, and a launch that took silence for yes lost its document.
+/// nothing, and a launch that took silence for yes would lose its document.
 #[cfg(unix)]
 fn handed_to(socket: &Path, path: Option<&str>) -> bool {
     use std::io::{Read, Write};
@@ -280,6 +287,12 @@ mod tests {
         });
         assert!(matches!(claim(&dir, Some("/paper.pdf")), Claim::Second));
         assert_eq!(door.join().expect("the door"), "/paper.pdf");
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&dir)
+            .expect("the folder")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o700, "only the reader may look inside");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

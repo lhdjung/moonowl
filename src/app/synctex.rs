@@ -13,57 +13,64 @@ impl Viewer {
     /// first, since choosing an editor would not help; with no editor
     /// chosen, they are sent to Settings.
     pub fn source_at(&mut self, page: usize, on: (f64, f64)) {
-        // One lookup at a time, each reading the whole SyncTeX file. A
-        // later click takes the place of one waiting.
-        if self.source_reading.is_some() {
-            self.source_owed = Some((page, on));
-            return;
-        }
         let (x, y) = self.layout.unplace_on(page - 1, on.0, on.1);
         // Reading the page's text loads it, which makes its space known
         // even where nothing has read the page yet.
         self.text_on(page);
-        let (x, y) = match self.document.spaces().get(page - 1).copied().flatten() {
+        let at = match self.document.spaces().get(page - 1).copied().flatten() {
             Some(space) => space.tex_point(x, y),
             None => (x, y),
         };
+        // One lookup at a time, each reading the whole SyncTeX file. A
+        // later click takes the place of one waiting. It is kept in the
+        // page's own points, so a zoom meanwhile does not move it.
+        if self.source_reading.is_some() {
+            self.source_owed = Some((page, at, self.text_edition));
+            return;
+        }
+        self.look_up_source(page, at);
+    }
+
+    /// Look up the source line at `(x, y)` on page `page`, in the points
+    /// SyncTeX measures in, on a thread. [`Viewer::source_landed`] takes
+    /// the answer.
+    fn look_up_source(&mut self, page: usize, (x, y): (f64, f64)) {
         let pdf = self.document.path().to_string();
         // On a thread of its own, which reads only the SyncTeX file, so a
         // long job such as recognising text does not hold it up.
-        let landing = Arc::new(Mutex::new(None));
-        self.source_reading = Some((Arc::clone(&landing), self.text_edition));
+        let landing = Landing::new();
+        self.source_reading = Some((landing.clone(), self.text_edition));
         let post = self.post.clone();
         let reading = crate::stats::Reading::begin();
         std::thread::spawn(move || {
             let _reading = reading;
             let found = std::panic::catch_unwind(|| crate::synctex::line_at(&pdf, page, x, y))
                 .unwrap_or_else(|_| Err("The SyncTeX file could not be read.".into()));
-            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(found);
-            post.send(crate::emit::News {
-                event: Event::SourceFound,
-                target: None,
-            });
+            landing.land(found, &post, Event::SourceFound);
         });
     }
 
     /// The editor opened at the line [`Viewer::source_at`] found, if that
     /// click is the latest and the text has not changed since.
     pub fn source_landed(&mut self) {
-        let landed = (self.source_reading.as_ref())
-            .and_then(|(landing, _)| landing.lock().unwrap_or_else(|e| e.into_inner()).take());
+        let landed = (self.source_reading.as_ref()).and_then(|(landing, _)| landing.take());
         let Some(found) = landed else {
             return;
         };
         let Some((_, text_edition)) = self.source_reading.take() else {
             return;
         };
-        if let Some((page, on)) = self.source_owed.take() {
-            return self.source_at(page, on);
-        }
-        if text_edition != self.text_edition {
+        let (owed_edition, owed) = match self.source_owed.take() {
+            Some((page, at, edition)) => (edition, Some((page, at))),
+            None => (text_edition, None),
+        };
+        if owed_edition != self.text_edition {
             self.notice =
                 "The document changed while its source was looked up. Click again.".into();
             return;
+        }
+        if let Some((page, at)) = owed {
+            return self.look_up_source(page, at);
         }
         let template = self.store.text("synctex_editor");
         let opened = found.and_then(|(file, line)| {
@@ -95,6 +102,7 @@ impl Viewer {
         let shown = pdf.clone();
         // Whether the request is for this document is asked on the thread,
         // since it compares the two paths as the disk resolves them.
+        let said = self.notice.clone();
         let taken = self.on_thread_without_document(
             move || {
                 let crate::synctex::Forward { tex, line, .. } = crate::synctex::take_for(&pdf)?;
@@ -116,9 +124,10 @@ impl Viewer {
             self.forward_owed = Some(number);
             // A long job, such as recognising text, would otherwise hold the
             // line back without a word.
-            if crate::synctex::waiting_for(self.document.path()) {
-                self.notice = "The editor's line is shown once the work under way is done.".into();
-            }
+            self.notice = match crate::synctex::waiting_for(self.document.path()) {
+                true => "The editor's line is shown once the work under way is done.".into(),
+                false => said,
+            };
         }
     }
 

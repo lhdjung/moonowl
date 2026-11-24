@@ -209,7 +209,8 @@ fn folder_takes_a_file(path: &str) -> std::io::Result<()> {
         return Ok(());
     };
     // Per call as well as per process: two windows' documents in one folder
-    // are asked at once, and the second `create_new` found the first's probe.
+    // are asked at once, and the second `create_new` would find the first's
+    // probe.
     static CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let probe = folder.join(format!(".moonowl-probe-{}-{call}", std::process::id()));
@@ -1119,7 +1120,7 @@ const CHANGED_MEANWHILE: &str =
     "The document was changed by something else. Try again in a moment.";
 
 /// Said when the copy an undo puts back has gone from the disk.
-pub const NO_COPY: &str = "Nothing to undo to";
+pub const NO_COPY: &str = "The copy to undo to has gone from the disk.";
 
 /// Whether a write was refused only because the document was changing on
 /// disk at that moment, so the same change can be made again once it has
@@ -1279,11 +1280,12 @@ fn writable(path: &std::path::Path) -> std::io::Result<()> {
 const UNDO_KEPT: u64 = 2 << 30;
 
 impl Before {
-    /// A place for one; nothing is copied until [`Before::take_to`].
-    pub fn make() -> Before {
+    /// A place for one, in the config directory `config`; nothing is copied
+    /// until [`Before::take_to`].
+    pub fn make(config: &std::path::Path) -> Before {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         static SWEPT: std::sync::Once = std::sync::Once::new();
-        let folder = crate::config::config_dir().join("undo");
+        let folder = config.join("undo");
         // What a crash left behind, a day on. Windows runs a process for
         // each launch, and a window left open there may still be holding a
         // copy days old, so there a copy is kept for thirty days. Past
@@ -1325,7 +1327,10 @@ impl Before {
     }
 
     pub fn put_back(&self, path: &str) -> Result<(), String> {
-        let body = std::fs::read(&self.0).map_err(|e| format!("{NO_COPY}: {e}"))?;
+        let body = std::fs::read(&self.0).map_err(|e| {
+            eprintln!("moonowl: {}: {e}", self.0.display());
+            NO_COPY.to_string()
+        })?;
         write_over(std::path::Path::new(path), &body)
     }
 }
@@ -1390,8 +1395,8 @@ fn write_over(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
     let written = crate::config::atomic_write_keeping(target, body, &mut still_the_draft);
     #[cfg(windows)]
     let written = written.or_else(|_| still_the_draft().and_then(|()| fill_in_place(target, body)));
-    // The file just written is the draft the next write in the same
-    // `into_draft` goes into: Restore writes once per colour.
+    // The file just written is the draft that any later write in the same
+    // `into_draft` goes into.
     // ponytail: a compiler that writes between the rename and this stat is
     // taken for our own write; stamp the staging file if that is ever seen.
     if written.is_ok() {
@@ -1427,7 +1432,19 @@ fn fill_in_place(target: &std::path::Path, body: &[u8]) -> Result<(), String> {
             aside.display()
         ));
     }
-    if let Err(e) = std::fs::copy(target, &aside) {
+    // A new file only, as `config::atomic_write` makes its staging file: a
+    // name planted between the look above and this is refused, not written
+    // through.
+    let mut copy = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&aside)
+        .map_err(|e| e.to_string())?;
+    let copied = std::fs::File::open(target)
+        .and_then(|mut from| std::io::copy(&mut from, &mut copy))
+        .and_then(|_| copy.sync_all());
+    drop(copy);
+    if let Err(e) = copied {
         let _ = std::fs::remove_file(&aside);
         return Err(e.to_string());
     }

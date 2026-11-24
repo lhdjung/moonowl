@@ -51,9 +51,10 @@ pub(super) struct Bar {
     reading_line: bool,
     theme_name: String,
     /// Each theme's name, the two colours its swatch is drawn in, whether it
-    /// is one the reader wrote, and whether its page is light. Read through `palette` rather than handed
-    /// raw to CSS: a swatch that shows a colour the renderer cannot read is
-    /// the one place meant to show what you are about to get lying about it.
+    /// is one the reader wrote, and whether its page is light. Read through
+    /// `palette` rather than handed raw to CSS: a swatch that shows a colour
+    /// the renderer cannot read is the one place meant to show what you are
+    /// about to get lying about it.
     theme_rows: Vec<(String, String, String, bool, bool)>,
     theme_index: usize,
     worn_built_in: bool,
@@ -404,7 +405,7 @@ pub(super) fn Toolbar(
                 // a second window and the shelf all answer "open
                 // something"; a mark, a highlight and a print belong to the
                 // document already on screen. Both hanging off the title
-                // meant a menu opened by pressing the name of the paper you
+                // would mean a menu opened by pressing the name of the paper you
                 // are reading, four of whose items are about papers you are
                 // not.
                 //
@@ -1174,8 +1175,8 @@ pub(super) fn Toolbar(
                 }
                 // **The cog opens a menu, not the window**: the switches
                 // somebody reaches for while reading, and "All settings…" at
-                // the bottom for the rest. Going straight to the window meant
-                // a window over the document for a switch that is one press.
+                // the bottom for the rest. Going straight to the window would
+                // mean a window over the document for a switch that is one press.
                 div { class: "anchor",
                     button {
                         class: if menu == Some(Menu::Settings) { "chip settings on" } else { "chip settings" },

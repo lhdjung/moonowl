@@ -46,6 +46,29 @@ fn a_right_click_on_a_page_offers_the_way_out_of_full_screen_first() {
     assert!(reader.harness.query(".menu.context").is_none());
 }
 
+/// With the menu bar away, the right-click menu offers it back, second
+/// after the way out of full screen.
+#[test]
+fn a_right_click_with_the_bar_away_offers_it_back() {
+    let mut reader = open(&readable("bar"));
+    reader.right_click_on_page(1, (0.5, 0.3));
+    assert!(
+        !rows(&reader).contains(&"show-menu-bar".to_string()),
+        "the bar is up"
+    );
+    reader.press("Escape");
+
+    reader.press_action(moonowl::keymap::Action::Toolbar);
+    reader.right_click_on_page(1, (0.5, 0.3));
+    assert_eq!(
+        rows(&reader).get(1).map(String::as_str),
+        Some("show-menu-bar")
+    );
+    reader.click("[data-item='show-menu-bar']");
+    assert!(reader.state().toolbar, "the bar is back");
+    assert!(reader.harness.query(".menu.context").is_none());
+}
+
 #[test]
 fn escape_and_a_press_elsewhere_put_it_away() {
     let mut reader = open(&readable("away"));
@@ -137,8 +160,9 @@ fn comment_writes_a_comment_on_the_selection() {
 }
 
 /// **A recompile that takes the comment's passage away takes the field with
-/// it**, and says so. A draft left behind with no field kept the find bar from
-/// taking the keyboard, so typing a query scrolled the document instead.
+/// it**, and says so. A draft left behind with no field would keep the find
+/// bar from taking the keyboard, and typing a query would scroll the document
+/// instead.
 #[test]
 fn a_recompile_under_a_comment_lets_the_find_bar_type() {
     let options = Options {
@@ -206,8 +230,8 @@ fn a_colour_chosen_from_a_marks_menu_is_the_marks_too() {
     );
 }
 
-/// **Apply gives the colour to the mark and leaves the palette alone.** The
-/// draft stayed in force after the window went, so new marks were offered a
+/// **Apply gives the colour to the mark and leaves the palette alone.** A
+/// draft that stayed in force after the window went would offer new marks a
 /// colour the palette never saved.
 #[test]
 fn a_colour_applied_to_a_mark_is_not_offered_for_new_ones() {

@@ -14,9 +14,8 @@ fn open_sign(reader: &mut Reader) {
     reader.click_nth(".menu.document .menu-item", at);
 }
 
-/// The Sign window reads every page on a thread. Counted as a write, quit
-/// waited seconds for it on a book; and opened again on the same draft, it
-/// read every page again.
+/// The Sign window reads every page on a thread, once per draft. It is not
+/// counted as a write, or quit would wait seconds for it on a book.
 #[test]
 fn the_sign_window_reads_the_document_once_and_not_as_a_write() {
     let dir = std::env::temp_dir().join(format!("moonowl-reads-{}", std::process::id()));

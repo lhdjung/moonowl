@@ -124,6 +124,11 @@ pub fn path(name: &str) -> Option<&'static str> {
         "book" => {
             r#"<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10a2 2 0 0 1 2 2v13a1.8 1.8 0 0 0-1.8-1.5H4z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H14a2 2 0 0 0-2 2v13a1.8 1.8 0 0 1 1.8-1.5H20z"/>"#
         }
+        // A window with its top band filled in: the bar that runs along the
+        // top of the window, for the rows that show it again.
+        "menubar" => {
+            r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2.2"/><path d="M5.7 4.5h12.6a2.2 2.2 0 0 1 2.2 2.2v2.8h-17V6.7a2.2 2.2 0 0 1 2.2-2.2z" fill="currentColor"/>"#
+        }
         "sidebar" => {
             r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2.2"/><path d="M10 4.5v15"/>"#
         }

@@ -21,7 +21,7 @@ use anyrender::{RenderContext, ResourceId};
 use dioxus_native::DeviceHandle;
 
 use crate::palette::Palette;
-use crate::recolor::{End, Region, REGIONS, SHADER};
+use crate::recolor::{End, Region};
 use crate::render::Bitmap;
 
 /// One rectangle of a page painted through a ramp of its own: a link, or a line
@@ -167,7 +167,7 @@ impl Recolorer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("recolor"),
-                source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+                source: wgpu::ShaderSource::Wgsl(crate::recolor::shader().into()),
             });
         let pipeline = device
             .device
@@ -183,7 +183,7 @@ impl Recolorer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("regions"),
-                source: wgpu::ShaderSource::Wgsl(REGIONS.into()),
+                source: wgpu::ShaderSource::Wgsl(crate::recolor::regions().into()),
             });
         let regions = device
             .device
@@ -485,9 +485,8 @@ impl Recolorer {
     /// bibliography page carries a couple of hundred links; asking every one of
     /// ten million pixels whether it is inside any of two hundred rectangles is
     /// two billion tests for work that touches a fiftieth of the page. The grid
-    /// is the runs stacked instead, so it costs their area and nothing else —
-    /// which is what the app gets from a clip, arrived at the only way a
-    /// compute pass can.
+    /// is the runs stacked instead, so it costs their area and nothing else,
+    /// as a clip would.
     fn ramp_runs(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -843,8 +842,8 @@ fn as_bytes(values: &[f32]) -> &[u8] {
 mod tests {
     use super::*;
 
-    /// A page of lines stacked one above another overran a device's texture
-    /// side; on shelves the grid stays about the page's own shape.
+    /// A page of lines stacked one above another would overrun a device's
+    /// texture side; on shelves the grid stays about the page's own shape.
     #[test]
     fn runs_are_shelved_within_the_page_width() {
         let mut runs: Vec<Run> = (0..100)

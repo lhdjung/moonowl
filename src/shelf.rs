@@ -90,7 +90,7 @@ pub trait Kept: Clone + PartialEq + DeserializeOwned {
 
         for (id, embedded) in Self::SHIPPED {
             // A shipped file edited in place with a mistake in it is worn as
-            // shipped, and said: silently, the edit just seemed to do nothing.
+            // shipped, and said, so that the edit does not seem to do nothing.
             let from_disk = fs::read_to_string(dir.join(format!("{id}.toml")))
                 .ok()
                 .and_then(|source| match parse::<Self>(id, &source, true) {

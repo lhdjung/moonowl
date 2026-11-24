@@ -92,9 +92,9 @@ pub fn hold(mutex: &'static std::sync::Mutex<()>, target: &Path) -> Held {
 /// one's permissions and, on macOS, its ACL and extended attributes.
 ///
 /// A rename puts a new inode under the name, and a new inode has none of what
-/// the reader hung on the old one — so the first highlight took a document's
-/// Finder tags, its comment, its "where from" and any permissions it had been
-/// given. None of that matters for a settings file; all of it does for a
+/// the reader hung on the old one — so a plain rename would cost a document
+/// its Finder tags, its comment, its "where from" and any permissions it had
+/// been given, at the first highlight. None of that matters for a settings file; all of it does for a
 /// paper. Hard links are still parted, which is what a rename is.
 pub fn atomic_write_keeping(
     target: &Path,
@@ -141,10 +141,16 @@ fn replace(
 
     // On the disk before the rename, or a crash a moment later can leave the
     // new name on an empty file — the reader's own document among them.
-    let written = std::fs::File::create(&temp).and_then(|mut file| {
-        body(&mut file)?;
-        file.sync_all()
-    });
+    // A new file only: a name that is already there, such as a link someone
+    // else planted in a shared folder, is refused rather than written
+    // through.
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)
+        .map_err(|e| e.to_string())?;
+    let written = body(&mut file).and_then(|()| file.sync_all());
+    drop(file);
     if let Err(e) = written {
         // A full disk leaves part of one behind, and it is ours.
         let _ = std::fs::remove_file(&temp);
@@ -243,6 +249,83 @@ fn sweep(dir: &Path, stem: &str) {
     }
 }
 
+/// The mark a browser leaves on a downloaded file, carried from the document
+/// onto a file saved out of it, as an archive tool carries it onto what it
+/// unpacks. A program attached to a downloaded PDF is then checked by the
+/// system before it first runs. Best effort: a document with no mark gives
+/// none.
+pub fn carry_quarantine(from: &Path, to: &Path) {
+    #[cfg(target_os = "macos")]
+    {
+        use std::ffi::{c_char, c_int, c_void, CString};
+        use std::os::unix::ffi::OsStrExt;
+
+        extern "C" {
+            fn getxattr(
+                path: *const c_char,
+                name: *const c_char,
+                value: *mut c_void,
+                size: usize,
+                position: u32,
+                options: c_int,
+            ) -> isize;
+            fn setxattr(
+                path: *const c_char,
+                name: *const c_char,
+                value: *const c_void,
+                size: usize,
+                position: u32,
+                options: c_int,
+            ) -> c_int;
+        }
+        let (Ok(from), Ok(to)) = (
+            CString::new(from.as_os_str().as_bytes()),
+            CString::new(to.as_os_str().as_bytes()),
+        ) else {
+            return;
+        };
+        let name = c"com.apple.quarantine";
+        let mut value = [0u8; 1024];
+        // SAFETY: the strings end in a nul, and the buffer is as long as said.
+        let read = unsafe {
+            getxattr(
+                from.as_ptr(),
+                name.as_ptr(),
+                value.as_mut_ptr().cast(),
+                value.len(),
+                0,
+                0,
+            )
+        };
+        if let Ok(read) = usize::try_from(read) {
+            // SAFETY: as above, and `read` is at most the buffer's length.
+            unsafe {
+                setxattr(
+                    to.as_ptr(),
+                    name.as_ptr(),
+                    value.as_ptr().cast(),
+                    read,
+                    0,
+                    0,
+                )
+            };
+        }
+    }
+    #[cfg(windows)]
+    {
+        let stream = |path: &Path| {
+            let mut path = path.as_os_str().to_owned();
+            path.push(":Zone.Identifier");
+            PathBuf::from(path)
+        };
+        if let Ok(zone) = std::fs::read(stream(from)) {
+            let _ = std::fs::write(stream(to), zone);
+        }
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let _ = (from, to);
+}
+
 /// Put what `from` wears onto `to`. Best effort: a document with its tags
 /// lost is still better than a highlight refused.
 // ponytail: extended attributes are carried on macOS only, where the Finder
@@ -292,8 +375,8 @@ fn dress(from: &Path, to: &Path) {
 /// in by calls this once; nothing downstream does.
 ///
 /// And through its links, where it exists: a paper opened from a symlinked
-/// folder and from its real one was two rows with two places. Not on Windows,
-/// where the real path is a `\\?\` one nobody wants to read.
+/// folder and from its real one would be two rows with two places. Not on
+/// Windows, where the real path is a `\\?\` one nobody wants to read.
 pub fn absolute(path: &str) -> String {
     #[cfg(not(windows))]
     if let Ok(real) = std::fs::canonicalize(path) {
@@ -462,6 +545,32 @@ mod replacing {
             1,
             "the staging file was left behind"
         );
+    }
+
+    /// A file saved out of a downloaded document carries the download's
+    /// mark, so the system checks it before it first runs.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_saved_file_carries_the_documents_download_mark() {
+        let dir = std::env::temp_dir().join(format!("moonowl-quarantine-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let (from, to) = (dir.join("paper.pdf"), dir.join("tool.command"));
+        std::fs::write(&from, b"%PDF").expect("written");
+        std::fs::write(&to, b"echo").expect("written");
+        let mark = "0083;6740a1b2;Safari;";
+        let xattr = |args: &[&std::ffi::OsStr]| {
+            std::process::Command::new("xattr")
+                .args(args)
+                .output()
+                .expect("xattr runs")
+        };
+        let name = std::ffi::OsStr::new("com.apple.quarantine");
+        xattr(&["-w".as_ref(), name, mark.as_ref(), from.as_os_str()]);
+        super::carry_quarantine(&from, &to);
+        let carried = xattr(&["-p".as_ref(), name, to.as_os_str()]).stdout;
+        assert_eq!(String::from_utf8_lossy(&carried).trim(), mark);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A new file is written where there is none, and a file that is

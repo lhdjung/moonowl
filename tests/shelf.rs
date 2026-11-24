@@ -1,12 +1,9 @@
 //! The window with nothing in it: the start screen, the shelf, and dropping a
 //! document on it.
 //!
-//! The largest thing the interface did not have, and the one whose absence
-//! reached furthest: `PROGRESS.md`'s own account of ⌘N, of `Handover::Fill`
-//! and of there being no way to close a document all named the missing start
-//! screen as the reason. So the tests here are about that reach as much as
-//! about the screen — what a window with nothing in it *is*, and what the
-//! rest of the reader does differently once one can exist.
+//! The tests here are about what a window with nothing in it *is*, and what
+//! the rest of the reader does differently because one can exist, as much as
+//! about the screen.
 //!
 //! Everything is asked of the interface, which is this suite's own rule: the
 //! shelf is read off the rows somebody would click, and the state of the
@@ -54,9 +51,8 @@ fn closing_a_document_leaves_the_start_screen() {
     assert!(state.empty, "the start screen is what is left");
     assert_eq!(state.pages, 0, "and there is no document behind it");
     // The bar keeps what is not about a document and loses what is. The
-    // document's own name is what goes: "Open…" is a chip of its own now and
-    // stands whether or not there is anything open — see `Menu::Open`, which
-    // is the split this used to predate.
+    // document's own name is what goes: "Open…" is a chip of its own and
+    // stands whether or not there is anything open — see `Menu::Open`.
     assert!(state.toolbar, "the toolbar is still there");
     assert_eq!(state.title, "", "the document's name is gone with it");
     assert_eq!(
@@ -171,9 +167,7 @@ fn an_empty_window_shows_the_shelf() {
 
 /// A document handed to a window that is showing nothing lands in it.
 ///
-/// This is `Handover::Fill` arriving for the first time — the arm `windows.rs`
-/// carried a comment on for two phases saying it could not be reached until
-/// there was a start screen.
+/// This is `Handover::Fill` in `windows.rs`.
 #[test]
 fn a_document_handed_to_an_empty_window_lands_in_it() {
     let dir = scratch("handover");
@@ -308,8 +302,8 @@ fn something_that_is_not_a_document_is_refused_out_loud() {
 
 /// The one already open is not offered on its own shelf.
 ///
-/// The app's own rule for the same list: reopening it here is a no-op, and
-/// opening it in a second window is what its own title menu is for.
+/// Reopening it here would do nothing, and opening it in a second window is
+/// what its own title menu is for.
 #[test]
 fn the_document_in_front_of_you_is_not_on_the_shelf() {
     let dir = scratch("self");
@@ -367,8 +361,8 @@ fn the_keyboard_knows_there_is_no_document() {
         ..Options::default()
     });
 
-    // Every one of these is `needsDocument` in the app's own table: moving
-    // around inside a document, marking a page, highlighting a passage.
+    // Every one of these is about a document: moving around inside one,
+    // marking a page, highlighting a passage.
     for key in ["j", "End", "n"] {
         reader.press(key);
     }
@@ -378,8 +372,7 @@ fn the_keyboard_knows_there_is_no_document() {
     let state = reader.state();
     assert!(state.empty, "still the start screen");
     assert_eq!(state.notice, "", "and nothing said about any of it");
-    // ⌘F is the one key this reader guards that the app does not — see
-    // `Viewer::open_find`, which says why.
+    // ⌘F is guarded too — see `Viewer::open_find`, which says why.
     reader.press_chord("mod+f");
     assert_eq!(reader.state().find, None, "no find bar over nothing");
 
@@ -398,9 +391,7 @@ fn the_keyboard_knows_there_is_no_document() {
 
 /// **The shelf is under the Open… menu too**, which is where a reader with a
 /// document already open can reach it: the start screen is behind that document
-/// and unreachable without first putting it down. The rows were written and
-/// never drawn — the list was read while the *Document* menu was open and shown
-/// under the Open menu, which are two different menus.
+/// and unreachable without first putting it down.
 #[test]
 fn the_open_menu_carries_the_shelf() {
     let dir = scratch("open-menu");

@@ -106,9 +106,9 @@ impl WindowRenderer for Steady {
     /// whether anything changed by the scene's size. So the size Blitz sends
     /// again after the resume matches the scene and is ignored, and the
     /// surface keeps the size it was made at. A window opened maximized is
-    /// made at its own size and maximized before its surface exists: macOS
-    /// then stretched a 1280-pixel frame over a 1512-pixel window, and cut off
-    /// its right edge, until the window was next resized. So once the surface
+    /// made at its own size and maximized before its surface exists, and
+    /// macOS would stretch a 1280-pixel frame over a 1512-pixel window, and
+    /// cut off its right edge, until the window is next resized. So once the surface
     /// exists it is told its size with a scene that differs from it.
     fn complete_resume(&mut self) -> bool {
         let pending = self.inner.is_pending();

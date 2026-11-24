@@ -72,9 +72,9 @@ impl Watching {
     /// Follow this document on behalf of a window, or stop following one.
     ///
     /// Per window because there is more than one, and each has a document of
-    /// its own: a single subject meant the second window to open a document
-    /// took the first window's watch away, so the paper being recompiled in
-    /// the window nobody had touched last simply never reloaded.
+    /// its own: with a single subject, the second window to open a document
+    /// would take the first window's watch away, and the paper being
+    /// recompiled in the first window would never reload.
     pub fn document(&self, window: &str, path: Option<&str>) {
         let signal = Signal::Follow(window.to_string(), path.map(PathBuf::from), None);
         if let Ok(sender) = self.0.lock() {
@@ -145,8 +145,7 @@ struct Followed {
 /// stays idle until something is opened.
 ///
 /// A watcher that cannot be created, or a directory that cannot be watched, is
-/// not worth a message: the app then behaves exactly as it did before any of
-/// this, which is to notice at the next launch.
+/// not worth a message: the app then notices a change at the next launch.
 pub fn start(exchange: Exchange, themes: PathBuf, palettes: PathBuf) -> Watching {
     let (sender, receiver) = mpsc::channel();
     let events = sender.clone();
@@ -392,7 +391,7 @@ fn follow(
     // a link is rewritten where it points, and the folder the link sits in
     // sees nothing. And it goes on the folder's real name, so that two
     // spellings of one folder count as one — inotify hands the same watch
-    // out for both, and unwatching the one took the other's away.
+    // out for both, and unwatching the one would take the other's away.
     let dir = real.parent().map(Path::to_path_buf)?;
     let already = kept.contains(&dir.as_path()) || held.values().any(|other| other.dir == dir);
     if !already && watcher.watch(&dir, RecursiveMode::NonRecursive).is_err() {
@@ -417,7 +416,7 @@ fn follow(
 /// FSEvents names what changed by its real path, and the path a reader opened
 /// may run through a link — `/tmp`, a linked project folder, a `~/Documents` a
 /// sync tool replaced — so an event compared against the opened path alone
-/// never matched and the paper never reloaded. The opened path is still what
+/// would never match, and the paper would never reload. The opened path is what
 /// the window is told, because that is the one it knows its document by.
 ///
 /// A document that is *itself* a link is the file it points at: that is what
@@ -455,8 +454,7 @@ pub(crate) fn whole(path: &Path) -> Option<Mark> {
 /// [`whole`] for several files at once, with one wait for all of them, so
 /// that twenty files chosen together wait once and not twenty times.
 pub(crate) fn all_whole(paths: &[&Path]) -> Vec<bool> {
-    let looked: Vec<Option<(u64, SystemTime, Vec<u8>)>> =
-        paths.iter().map(|path| looks_whole(path)).collect();
+    let looked: Vec<_> = paths.iter().map(|path| looks_whole(path)).collect();
     if looked.iter().any(Option::is_some) {
         std::thread::sleep(STEADY);
     }
@@ -467,8 +465,9 @@ pub(crate) fn all_whole(paths: &[&Path]) -> Vec<bool> {
 
 /// The first look of [`whole`]: the file's size and time, and its tail, if
 /// what is on the disk reads as a whole PDF right now.
-fn looks_whole(path: &Path) -> Option<(u64, SystemTime, Vec<u8>)> {
-    let (length, modified) = identity(path)?;
+fn looks_whole(path: &Path) -> Option<(crate::render::Stamp, Vec<u8>)> {
+    let stamp = identity(path)?;
+    let length = stamp.0;
     let mut file = File::open(path).ok()?;
 
     let mut head = Vec::new();
@@ -490,18 +489,18 @@ fn looks_whole(path: &Path) -> Option<(u64, SystemTime, Vec<u8>)> {
     if after.windows(3).any(|w| w == b"obj") || after.windows(4).any(|w| w == b"xref") {
         return None;
     }
-    Some((length, modified, tail))
+    Some((stamp, tail))
 }
 
 /// The second look, after the wait: the file as [`looks_whole`] saw it, if
 /// it is still that size and time. Otherwise it is being written to, and
 /// this was a moment in the middle of a run that happened to end in
 /// `%%EOF`; the next burst will ask again.
-fn held(path: &Path, (length, modified, tail): (u64, SystemTime, Vec<u8>)) -> Option<Mark> {
-    if identity(path)? != (length, modified) {
+fn held(path: &Path, (stamp, tail): (crate::render::Stamp, Vec<u8>)) -> Option<Mark> {
+    if identity(path)? != stamp {
         return None;
     }
-    Some((length, modified, fingerprint(&tail)))
+    Some((stamp.0, stamp.1, fingerprint(&tail)))
 }
 
 /// FNV-1a over the bytes already read. Not a checksum of the document — it
@@ -516,13 +515,10 @@ fn fingerprint(bytes: &[u8]) -> u64 {
     hash
 }
 
-fn identity(path: &Path) -> Option<(u64, SystemTime)> {
-    let data = std::fs::metadata(path).ok()?;
-    let length = data.len();
-    if length == 0 {
-        return None;
-    }
-    Some((length, data.modified().ok()?))
+/// The file's stamp, or nothing for an empty file, which is a draft being
+/// written.
+fn identity(path: &Path) -> Option<crate::render::Stamp> {
+    crate::render::stamp_of(&path.to_string_lossy()).filter(|stamp| stamp.0 > 0)
 }
 
 #[cfg(test)]
@@ -541,8 +537,8 @@ mod tests {
     }
 
     /// **A draft that lands between the open and the watch is reported.**
-    /// The starting point was read off the disk when the watch thread got
-    /// round to it, so the new draft was taken for the one on screen.
+    /// A starting point read off the disk when the watch thread gets round
+    /// to it would take the new draft for the one on screen.
     #[test]
     fn a_draft_between_the_open_and_the_watch_is_reported() {
         let path = scratch("drafted.pdf", b"%PDF-1.7\nfirst\n%%EOF\n");
@@ -625,8 +621,9 @@ mod tests {
     }
 
     /// An incremental update being appended has the previous revision's
-    /// marker within reach, and only the `STEADY` pause stood between that
-    /// and a reload or a markup write over half a file.
+    /// marker within reach, and without the check for what follows it only
+    /// the `STEADY` pause would stand between that and a reload or a markup
+    /// write over half a file.
     #[test]
     fn an_update_still_being_appended_is_not() {
         let mut body = b"%PDF-1.7\n... objects ...\ntrailer\n%%EOF\n".to_vec();
@@ -647,8 +644,8 @@ mod tests {
     }
 
     /// The case a coarse modification time hides: a recompile that came out
-    /// the same length, inside the same tick. Length and time alone said
-    /// nothing had happened; the trailer says otherwise, and the trailer is
+    /// the same length, inside the same tick. Length and time alone say
+    /// nothing has happened; the trailer says otherwise, and the trailer is
     /// already in hand.
     #[test]
     fn a_rewrite_of_the_same_length_is_still_a_rewrite() {

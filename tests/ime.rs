@@ -1,25 +1,16 @@
-//! Composed input, which both of this experiment's documents called the one
-//! thing it was blocked on.
-//!
-//! `dioxus-assessment.md` said "IME does not exist — no `compositionstart` /
-//! `update` / `end`", and `PROGRESS.md` carried it as the single item that
-//! needed a decision rather than a workaround: a reader who writes Japanese,
-//! Chinese or Korean composes every word in a candidate window, and a find bar
-//! that cannot take a composition cannot be searched in those languages at
-//! all. That was true of Blitz once and is not true of the revision this tree
-//! is pinned to. This file is the evidence, and it is here rather than in
-//! `tests/search.rs` because what is being asked about is the *input path*
-//! and the find field is only the one place this reader currently has to ask
-//! it from.
+//! Composed input: a reader who writes Japanese, Chinese or Korean composes
+//! every word in a candidate window, and a find bar that cannot take a
+//! composition cannot be searched in those languages at all. This file is
+//! here rather than in `tests/search.rs` because what is being asked about is
+//! the *input path* and the find field is only the one place this reader
+//! currently has to ask it from.
 //!
 //! What arrives is not a DOM `CompositionEvent` and never will be — the DOM's
 //! composition events are a *notification* that a composition is under way,
 //! and Blitz instead applies the composition to the focused element's editor
 //! through Parley and tells the application about the result. The reader wants
-//! the result. Nothing in `app.rs` had to change for any of this to work,
-//! which is why there is no source change beside these tests: the find field
-//! is an ordinary `<input>` with an `oninput` handler, and a committed
-//! composition is an `input` event like any other.
+//! the result. The find field is an ordinary `<input>` with an `oninput`
+//! handler, and a committed composition is an `input` event like any other.
 
 use moonowl::fixture;
 use moonowl::harness::{Options, Reader};
@@ -34,8 +25,8 @@ fn searching() -> Reader {
     reader
 }
 
-/// The whole of what was in doubt: a word nobody can type a keystroke at a
-/// time reaches the field, and the reader searches for it.
+/// A word nobody can type a keystroke at a time reaches the field, and the
+/// reader searches for it.
 #[test]
 fn a_composed_word_reaches_the_field_and_is_searched_for() {
     let mut reader = searching();
@@ -81,10 +72,7 @@ fn a_composed_word_that_is_in_the_document_is_found() {
 /// `apply_generated_text_input_event` answers `PreEditChange` with a redraw
 /// and no `input` event, so the handler in `app.rs` never runs. A browser
 /// *does* fire `input` mid-composition and sets `isComposing` for the
-/// application to check — and `main.ts` does not check it, so the app searches
-/// for every intermediate guess and this reader does not. It is a small thing
-/// and it is the second time the port has come out ahead by inheriting a
-/// stricter substrate.
+/// application to check.
 #[test]
 fn a_preedit_is_not_searched_for_until_it_is_committed() {
     let mut reader = searching();

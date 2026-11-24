@@ -212,10 +212,22 @@ impl Viewer {
     }
 
     /// Before the document is put down, by closing it, its window or the
-    /// app, or by opening another in its place: the words typed into a field,
-    /// and the boxes clicked while a write was under way, are written first,
-    /// and the document stays until they are. Answers whether it stays.
+    /// app, or by opening another in its place: a comment being typed, the
+    /// words typed into a field, and the boxes clicked while a write was
+    /// under way are written first, and the document stays until they are.
+    /// Answers whether it stays.
     pub(super) fn keeps_typed_words(&mut self) -> bool {
+        if self.commenting.is_some() && self.commenting != self.refused_comment {
+            let idle = self.writing.is_none();
+            // `false` when another write is under way; `busy` has said so.
+            if !self.save_comment() {
+                return true;
+            }
+            if idle && self.writing.is_some() {
+                self.notice = "Writing the comment. Try again in a moment.".into();
+                return true;
+            }
+        }
         let refused = |filling: &Filling| filling.refused.as_ref() == Some(&filling.draft);
         if self.filling.as_ref().is_some_and(refused) {
             self.filling = None;

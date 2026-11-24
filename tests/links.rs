@@ -1,12 +1,9 @@
 //! The document's own links, the pages it numbers its own way, and the field
 //! that takes a number.
 //!
-//! Phase 3 item 5. The app has no test file for any of this — links are
-//! covered by `reader.test.mjs` only as far as "a link layer exists", and
-//! labels by `labels.test.mjs`, which asserts on a book that numbers its front
-//! matter i, ii, iii. That book is a fixture the app generates with Node;
-//! `fixture::links_pdf` is the same shape written in Rust, with the links in
-//! it as well, so that `cargo test` needs cargo and nothing else.
+//! `fixture::links_pdf` is a book that numbers its front matter i, ii, iii,
+//! with the links in it as well. It is written in Rust, so that `cargo test`
+//! needs cargo and nothing else.
 //!
 //! Everything here is asked of the interface: a link is a node with an area,
 //! a jump is the page the toolbar then says, and an address handed to the
@@ -106,8 +103,8 @@ fn follow(reader: &mut Reader, where_to: &str) {
 }
 
 /// **The click that puts a menu away is spent on that.** The View menu stays
-/// up on purpose, and the press that closed it landed on a cross-reference
-/// and jumped.
+/// up on purpose, and the press that closes it must not land on a
+/// cross-reference and jump.
 #[test]
 fn a_click_that_closes_a_menu_does_not_follow_a_link() {
     let mut reader = linked();
@@ -204,9 +201,7 @@ fn back_returns_to_where_the_jump_started_and_forward_returns_again() {
     let mut reader = linked();
     // Somewhere that is not the top of the document, so that "back" has an
     // offset to put right as well as a page — but not a whole screenful,
-    // which now carries page one's links off the top of the window. The
-    // document area grew when the notice line stopped being a row of the
-    // window and became a pill over it, and a screenful grew with it.
+    // which carries page one's links off the top of the window.
     reader.wheel(150.0);
     let started = reader.state().scroll;
 
@@ -595,8 +590,8 @@ fn a_document_that_numbers_its_pages_1_to_n_says_nothing() {
 
 /// **A link is ramped from the page as drawn, not as recoloured.** Page one's
 /// second link is over nothing, so under a dark theme it is the theme's paper.
-/// The software path used to ramp the recoloured page, where dark paper reads
-/// as ink, and drew every link as a solid block of the link colour.
+/// Ramped from the recoloured page, where dark paper reads as ink, every link
+/// would be a solid block of the link colour.
 #[test]
 fn a_link_over_nothing_is_paper_under_a_dark_theme() {
     let mut reader = Reader::open_with(
@@ -962,8 +957,8 @@ fn a_new_draft_puts_the_card_away() {
 }
 
 /// **The card tints the links on the page it shows**, as the page itself
-/// does. It drew the page as a thumbnail is drawn, with nothing painted into
-/// it, so a link there showed in the colour it was printed in.
+/// does. Drawn as a thumbnail is drawn, with nothing painted into it, a link
+/// there would show in the colour it was printed in.
 #[test]
 fn the_card_tints_the_links_on_the_page_it_shows() {
     // Page five gains a link over its line of type, and page one's link to

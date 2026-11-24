@@ -77,7 +77,7 @@ impl Viewer {
         // Words typed into a form field or a comment are written first. The
         // organiser keeps every press from the page, so they would not be
         // written while it is open, and its save would close the field.
-        if self.keeps_typed_words() || !self.save_comment() {
+        if self.keeps_typed_words() {
             return;
         }
         // An organiser opened while a write goes into the document would be
@@ -553,9 +553,8 @@ impl Viewer {
                 }
             },
         );
-        match self.organiser.as_mut() {
-            Some(organiser) if taken => organiser.adding = true,
-            _ => self.notice = self.why_refused().into(),
+        if let Some(organiser) = self.organiser.as_mut().filter(|_| taken) {
+            organiser.adding = true;
         }
     }
 
@@ -689,7 +688,6 @@ impl Viewer {
             if let Some(organiser) = self.organiser.as_mut() {
                 organiser.reading = false;
             }
-            self.notice = self.why_refused().into();
         }
     }
 
@@ -751,9 +749,8 @@ impl Viewer {
                 }
             },
         );
-        match self.organiser.as_mut() {
-            Some(organiser) if taken => organiser.adding = true,
-            _ => self.notice = self.why_refused().into(),
+        if let Some(organiser) = self.organiser.as_mut().filter(|_| taken) {
+            organiser.adding = true;
         }
     }
 
@@ -808,10 +805,7 @@ impl Viewer {
             crate::emit::after(
                 STILL_TICK,
                 self.post.clone(),
-                crate::emit::News {
-                    event: crate::emit::Event::SheetTick(self.sheet_rolls),
-                    target: None,
-                },
+                crate::emit::Event::SheetTick(self.sheet_rolls),
             );
         }
     }
@@ -1014,7 +1008,6 @@ impl Viewer {
             if let Some(organiser) = self.organiser.as_mut() {
                 organiser.busy = false;
             }
-            self.notice = self.why_refused().into();
         }
     }
 
@@ -1119,7 +1112,6 @@ impl Viewer {
             if let Some(organiser) = self.organiser.as_mut() {
                 organiser.busy = false;
             }
-            self.notice = self.why_refused().into();
         }
     }
 

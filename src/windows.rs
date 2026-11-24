@@ -32,8 +32,7 @@ use std::sync::{Arc, Mutex};
 pub const MAIN: &str = "main";
 
 /// How far a new window is stepped down from the one in front of it, so that
-/// two windows are two windows rather than one with a stack behind it. The
-/// app's number.
+/// two windows are two windows rather than one with a stack behind it.
 pub const CASCADE: f64 = 28.0;
 
 /// What to do with a document somebody has handed us.
@@ -66,10 +65,7 @@ struct Inner {
     /// Every window that exists, in the order they were made — which is not
     /// the same list as `showing`, and the difference is the whole point of
     /// it: a window with nothing in it is a window, and it is exactly the one
-    /// a handed-over document should go to.
-    ///
-    /// It was not needed while a window was always made *for* a document,
-    /// because then the two lists were the same list. See [`Desk::idle`].
+    /// a handed-over document should go to. See [`Desk::idle`].
     made: Mutex<Vec<String>>,
     /// The windows arranging pages. Such a window may have no document, but
     /// it is not empty: a document handed to it would only be sent on, and
@@ -284,9 +280,9 @@ impl Desk {
 /// Where to put a new window: one step down from the window in front of it,
 /// keeping its left and right edges and its bottom edge — so the new window
 /// is `CASCADE` shorter, and nothing is ever cut off at the right or the
-/// bottom. Stepping down *and across* was the classic cascade, and off a
-/// maximized window it put every step's worth of the new window past the
-/// edge of the screen. On again while the spot is taken.
+/// bottom. The classic cascade steps down *and across*, and off a maximized
+/// window that puts every step's worth of the new window past the edge of
+/// the screen. On again while the spot is taken.
 ///
 /// Off the *front* window's frame rather than the remembered position:
 /// restoring three windows makes them in one burst, so all three would cascade
@@ -297,11 +293,8 @@ impl Desk {
 /// there is nothing to cascade from, and the window is left where the platform
 /// puts it.
 ///
-/// **What the app needs here and this does not is `Placements`**, because
-/// showing a window on macOS moves it onto the launch window's frame — so the
-/// spot has to be applied again afterwards, and windows still coming up have to
-/// be counted as taken. Here a window is made and positioned in one function
-/// with nothing on screen in between.
+/// The shell makes and positions a window in one turn, with nothing on
+/// screen in between, so only the windows already made count as taken.
 pub fn cascade(
     front: Option<(f64, f64, f64, f64)>,
     taken: &[(f64, f64)],

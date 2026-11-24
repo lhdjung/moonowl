@@ -15,7 +15,7 @@ impl Viewer {
     /// after every reload.
     /// **Read on a thread**, as a write's reopen reads it: a probe file
     /// written beside the document and the words under every mark, which on
-    /// a syncing volume stalled the window at every ⌘O. The marks of the
+    /// a syncing volume would stall the window at every ⌘O. The marks of the
     /// document before are gone at once; a write waits for the answer (see
     /// [`Viewer::busy`]), which [`Viewer::markup_landed`] takes up.
     pub(super) fn read_markup(&mut self) {
@@ -23,18 +23,17 @@ impl Viewer {
         self.attached.clear();
         self.quotes.clear();
         self.columns.clear();
-        let landing = Arc::new(Mutex::new(None));
-        self.markup_reading = Some(Arc::clone(&landing));
+        let landing = Landing::new();
+        self.markup_reading = Some(landing.clone());
         let (document, post) = (self.document.clone(), self.post.clone());
         let working = crate::stats::Writing::begin();
         std::thread::spawn(move || {
             let _working = working;
-            let read = MarkupRead::caught(&*document, None);
-            *landing.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
-            post.send(crate::emit::News {
-                event: Event::MarkupRead,
-                target: None,
-            });
+            landing.land(
+                MarkupRead::caught(&*document, None),
+                &post,
+                Event::MarkupRead,
+            );
         });
     }
 
@@ -42,11 +41,7 @@ impl Viewer {
     /// landed: one for a document since put down landed in a slot nobody
     /// holds any more.
     pub fn markup_landed(&mut self) {
-        let Some(read) = self
-            .markup_reading
-            .as_ref()
-            .and_then(|landing| landing.lock().unwrap_or_else(|e| e.into_inner()).take())
-        else {
+        let Some(read) = self.markup_reading.as_ref().and_then(Landing::take) else {
             return;
         };
         self.take_markup(read);
@@ -438,7 +433,7 @@ impl Viewer {
             .unwrap_or_else(|| file.clone());
         let written = highlights_as(format, &title, &file, &rows);
         let count = rows.len();
-        let taken = self.on_thread_without_document(
+        self.on_thread_without_document(
             {
                 let to = to.clone();
                 move || crate::atomic_write(std::path::Path::new(&to), written.as_bytes())
@@ -456,9 +451,6 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
     }
 
     /// Put the colour popover up over the selection, or say why not.
@@ -633,10 +625,12 @@ impl Viewer {
             move |path| crate::markup::set_note(path, page, index, &note, &author),
             move |viewer, written| {
                 let Err(refused) = written else { return };
+                let for_now = crate::markup::refused_for_now(&refused);
                 viewer.notice = refused;
                 if viewer.mark_open.is_none() && viewer.commenting.is_none() {
                     if let Some(open) = typed {
                         viewer.mark_open = Some(open);
+                        viewer.refused_comment = (!for_now).then(|| words.clone());
                         viewer.commenting = Some(words);
                         viewer
                             .notice
@@ -967,9 +961,8 @@ impl Viewer {
         );
         // A save refused because the last is still going leaves that one
         // in flight.
-        match saving {
-            true => self.saving_palette = true,
-            false => self.notice = self.why_refused().into(),
+        if saving {
+            self.saving_palette = true;
         }
     }
 
@@ -1008,7 +1001,7 @@ impl Viewer {
         use crate::palettes::HighlightPalette;
         let dir = self.store.palettes_dir().to_path_buf();
         let gone = gone.clone();
-        let taken = self.on_disk(
+        self.on_disk(
             move || {
                 let deleted = HighlightPalette::delete(&dir, &gone.id);
                 (gone, deleted, HighlightPalette::load_all(&dir))
@@ -1026,9 +1019,6 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
-        if !taken {
-            self.notice = self.why_refused().into();
-        }
     }
 
     /// The palettes as the folder now has them: a file saved here, in
@@ -1706,7 +1696,7 @@ impl Viewer {
         let Some(before) = step.file else {
             return self.opposite(redoing, now, None, marks, None);
         };
-        let after = crate::markup::Before::make();
+        let after = crate::markup::Before::make(self.store.dir());
         let keeping = after.keeper();
         // Shared with the write's thread, which lets go of it when the write
         // is done, so that a refused step can be kept with its copy.
@@ -1743,8 +1733,8 @@ impl Viewer {
                     // step, and neither can a copy that has gone. Any other
                     // refusal keeps it, and every step before it, to be
                     // tried again.
-                    let lost = refused == crate::markup::CHANGED
-                        || refused.starts_with(crate::markup::NO_COPY);
+                    let lost =
+                        refused == crate::markup::CHANGED || refused == crate::markup::NO_COPY;
                     match Arc::try_unwrap(before) {
                         Ok(before) if !lost => {
                             let (kept, done) = match redoing {

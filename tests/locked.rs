@@ -1,11 +1,6 @@
 //! A document behind a password: asking for one, refusing a wrong one, and
 //! what happens to the reader who declines.
 //!
-//! `ui.askForPassword` in the app, which was the largest thing left on
-//! `PROGRESS.md`'s list of what this port did not have — an encrypted document
-//! opened as an error, in a reader whose whole premise is that it opens what
-//! you give it.
-//!
 //! The fixture is written here rather than found: [`fixture::locked_pdf`] is
 //! the PDF standard security handler at revision 2, RC4 at 40 bits, which is
 //! forty lines of MD5 and RC4 and no dependency. See its own comment for why
@@ -102,8 +97,8 @@ fn the_password_opens_it() {
     assert_eq!(state.pages, 3);
 }
 
-/// A wrong one says so and asks again, which is the app's second sentence and
-/// the reason [`Locked::wrong`] exists at all: pdfium reports "needs a
+/// A wrong one says so and asks again, which is the reason [`Locked::wrong`]
+/// exists at all: pdfium reports "needs a
 /// password" and "that was not it" as the same error, and the difference is
 /// whether one was supplied.
 #[test]
@@ -155,9 +150,8 @@ fn the_field_shows_bullets_and_not_the_password() {
 
 /// "Not now" withdraws the question and leaves the reader with what they had.
 ///
-/// **Declining is not answering with an empty password**, which is the app's
-/// own hard-won note about pdf.js: a reader on their way out of the question
-/// must not be asked it again.
+/// **Declining is not answering with an empty password**: a reader on their
+/// way out of the question must not be asked it again.
 #[test]
 fn not_now_leaves_the_reader_where_they_were() {
     let mut reader = Reader::locked(&fixture::locked_pdf());
@@ -212,8 +206,9 @@ fn a_reader_who_declines_keeps_the_document_they_had() {
 
 /// While the question is up in an empty window, the desk is told the window
 /// is showing the document it asks about, and declined, that it shows nothing.
-/// Down as empty, an asking window was where the desk sent the next document
-/// handed over, and the window sent it back: a loop that spun the event loop.
+/// Down as empty, an asking window would be where the desk sends the next
+/// document handed over, and the window would send it back, in a loop that
+/// spins the event loop.
 /// A window with a document stays down as showing it, so its watch goes on
 /// following that document and a second open of it comes to this window.
 #[test]
@@ -297,8 +292,8 @@ fn a_document_under_an_owner_password_alone_is_still_encrypted() {
 }
 
 /// **Nothing behind the question answers the keyboard.** The password field
-/// lets a chord through, and ⌘F put a find bar over the prompt that then
-/// took the typing.
+/// lets a chord through, and ⌘F would put a find bar over the prompt that
+/// then takes the typing.
 #[test]
 fn a_chord_does_not_reach_the_document_behind_the_question() {
     let mut reader = Reader::open(&Reader::book());

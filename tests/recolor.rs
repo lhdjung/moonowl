@@ -1,18 +1,13 @@
-//! Spike 3: the shader against the reference, to the same tolerance the app
-//! already holds its two recolouring paths to.
-//!
-//! `recolor.test.mjs` in the app holds the canvas blend chain and the pixel
-//! walk to within one level out of 255 of each other. The GPU is a third path,
-//! and the question is whether it lands in the same place. So: run the WGSL
-//! over a page of made-up pixels, run `recolor_cpu` over the same pixels, and
-//! compare.
+//! The shader against the reference, to within one level out of 255. The GPU
+//! and the CPU are two paths to the same recolouring, and the question is
+//! whether they land in the same place. So: run the WGSL over a page of
+//! made-up pixels, run `recolor_cpu` over the same pixels, and compare.
 //!
 //! It runs headless — an adapter, a device, a compute pass, a readback — with
-//! no window and no document, which is also the shape the Phase 2 harness
-//! wants.
+//! no window and no document.
 
 use moonowl::gpu;
-use moonowl::recolor::{duotone_cpu, end, recolor_cpu, Region, Rgb, REGIONS, SHADER};
+use moonowl::recolor::{duotone_cpu, end, recolor_cpu, Region, Rgb};
 
 /// Moonowl Dark, near enough: light ink on a slate ground.
 const TEXT: Rgb = [0xe8, 0xe6, 0xe3];
@@ -52,6 +47,16 @@ fn fixture() -> Vec<u8> {
     pixels
 }
 
+/// Said when there is no GPU to run a shader on. Where `MOONOWL_NEEDS_GPU`
+/// is set, as CI sets it on Linux with a GPU in software, that is a failure.
+fn no_gpu(shader: &str) {
+    assert!(
+        std::env::var_os("MOONOWL_NEEDS_GPU").is_none(),
+        "{shader}: no GPU adapter, and MOONOWL_NEEDS_GPU is set"
+    );
+    eprintln!("{shader}: no GPU adapter; skipping");
+}
+
 #[test]
 fn shader_matches_the_reference() {
     for keep_colour in [false, true] {
@@ -60,7 +65,7 @@ fn shader_matches_the_reference() {
         recolor_cpu(&mut expected, TEXT, BG, keep_colour);
 
         let Some(actual) = run_shader(&pixels, TEXT, BG, keep_colour) else {
-            eprintln!("recolor: no GPU adapter; skipping");
+            no_gpu("recolor");
             return;
         };
 
@@ -114,7 +119,7 @@ fn the_regions_shader_matches_the_reference() {
     }
 
     // Two rectangles in two colours, the second overlapping the first: later
-    // wins, which is the order `viewer.ts` paints markup and links in.
+    // wins.
     let regions = [
         Region {
             area: [4.0, 2.0, 40.0, 9.0],
@@ -143,7 +148,7 @@ fn the_regions_shader_matches_the_reference() {
     duotone_cpu(&mut expected, WIDTH, HEIGHT, &regions);
 
     let Some(actual) = run_regions(&pixels, WIDTH, HEIGHT, &regions) else {
-        eprintln!("regions: no GPU adapter; skipping");
+        no_gpu("regions");
         return;
     };
     within_a_level(&pixels, &expected, &actual);
@@ -185,7 +190,7 @@ fn the_regions_shader_finds_each_of_many_runs() {
     let mut expected = pixels.clone();
     duotone_cpu(&mut expected, WIDTH, HEIGHT, &regions);
     let Some(actual) = run_regions(&pixels, WIDTH, HEIGHT, &regions) else {
-        eprintln!("regions: no GPU adapter; skipping");
+        no_gpu("regions");
         return;
     };
     within_a_level(&pixels, &expected, &actual);
@@ -292,7 +297,7 @@ fn run_shader(pixels: &[u8], text: Rgb, bg: Rgb, keep_colour: bool) -> Option<Ve
 
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("recolor"),
-        source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+        source: wgpu::ShaderSource::Wgsl(moonowl::recolor::shader().into()),
     });
     let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: Some("recolor"),
@@ -474,7 +479,7 @@ fn run_regions(pixels: &[u8], width: u32, height: u32, regions: &[Region]) -> Op
 
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("regions"),
-        source: wgpu::ShaderSource::Wgsl(REGIONS.into()),
+        source: wgpu::ShaderSource::Wgsl(moonowl::recolor::regions().into()),
     });
     let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: Some("regions"),
@@ -580,8 +585,8 @@ fn run_regions(pixels: &[u8], width: u32, height: u32, regions: &[Region]) -> Op
 }
 
 /// **A link printed in colour comes out the link colour whole.** By luma a
-/// mid blue sits halfway up the ramp, and the link was half its colour; by its
-/// least channel it is ink.
+/// mid blue sits halfway up the ramp, and the link would be half its colour;
+/// by its least channel it is ink.
 #[test]
 fn a_link_printed_in_blue_is_the_link_colour_at_full_strength() {
     let link = [0xf5, 0xc4, 0x9c];
@@ -598,9 +603,10 @@ fn a_link_printed_in_blue_is_the_link_colour_at_full_strength() {
 }
 
 /// **A link inside a highlight can still be read.** Yellow's least channel is
-/// near zero, so measured against white the highlight counted as ink and the
-/// link was a block of the link colour. Measured against the lightest pixel in
-/// the link, the highlight is its paper and the type is its ink.
+/// near zero, so measured against white the highlight would count as ink and
+/// the link would be a block of the link colour. Measured against the
+/// lightest pixel in the link, the highlight is its paper and the type is its
+/// ink.
 #[test]
 fn a_link_inside_a_highlight_keeps_its_words() {
     let link = [0xf5, 0xc4, 0x9c];
@@ -617,4 +623,47 @@ fn a_link_inside_a_highlight_keeps_its_words() {
     duotone_cpu(&mut pixels, 3, 1, &[region]);
     assert_eq!(&pixels[0..3], &link, "the type");
     assert_eq!(&pixels[4..7], &BG, "the highlight under it");
+}
+
+/// **The recolouring itself, pinned.** The GPU is compared with the CPU, and
+/// both read the same constants, so a changed constant or a mistake made in
+/// both would pass every other test here. These are the values Moonowl Dark
+/// gives a few pixels: paper, a pale wash above the white point, the grey
+/// just below it, a mid grey, ink, a near-neutral under the colour floor,
+/// and a blue and a red, which keep their hue only when colour is kept.
+#[test]
+fn the_recolouring_gives_these_values() {
+    let probes: [Rgb; 8] = [
+        [255, 255, 255],
+        [236, 236, 236],
+        [234, 234, 234],
+        [128, 128, 128],
+        [0, 0, 0],
+        [128, 134, 128],
+        [31, 119, 180],
+        [214, 39, 40],
+    ];
+    let recoloured = |keep: bool| {
+        let mut pixels: Vec<u8> = probes
+            .iter()
+            .flat_map(|&[r, g, b]| [r, g, b, 255])
+            .collect();
+        recolor_cpu(&mut pixels, TEXT, BG, keep);
+        pixels
+            .chunks(4)
+            .map(|p| [p[0], p[1], p[2]])
+            .collect::<Vec<Rgb>>()
+    };
+    let greys = [
+        [34, 36, 43],
+        [34, 36, 43],
+        [35, 37, 44],
+        [124, 124, 127],
+        [232, 230, 227],
+        [121, 121, 124],
+    ];
+    let flat = [greys.as_slice(), &[[149, 149, 150], [154, 154, 155]]].concat();
+    let kept = [greys.as_slice(), &[[74, 163, 224], [224, 84, 85]]].concat();
+    assert_eq!(recoloured(false), flat);
+    assert_eq!(recoloured(true), kept);
 }

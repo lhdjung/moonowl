@@ -480,8 +480,8 @@ pub const EXTRA: &[Spec] = &[
         mac["mod+shift+y"],
         other["mod+alt+shift+y"]
     ),
-    // Unbound: a stray `s` put the reader on two pages across, and kept them
-    // there, the spread being a setting. The Settings menu has it.
+    // Unbound: a stray `s` would put the reader on two pages across, and keep
+    // them there, the spread being a setting. The Settings menu has it.
     spec!(
         A::Spread,
         "Switch between one page and two side by side",
@@ -817,7 +817,7 @@ pub fn parse_chord(text: &str, mac: bool) -> Option<String> {
     let mut mods = Mods::default();
     // A capital on its own is Shift and the letter: it is how the Keyboard
     // page shows `shift+g` and how Vim writes it, and read as plain `g` it
-    // took `g g` away with it.
+    // would take `g g` away with it.
     let lone = text.trim();
     mods.shift = lone.len() == 1 && lone.chars().all(|c| c.is_ascii_uppercase());
     // Peeled from the front rather than split on `+`, because `+` is also a
@@ -1058,8 +1058,8 @@ impl Keymap {
             by_action.insert(spec.id, chords);
         }
 
-        // One chord, one action. Which one is not a matter of the order the
-        // arms happen to be written in any more, so a chord claimed twice is
+        // One chord, one action. Which one is never a matter of the order the
+        // arms happen to be written in, so a chord claimed twice is
         // a thing the reader is told about — and the one they wrote
         // themselves wins, because the other one is ours.
         let mut by_binding: HashMap<String, Action> = HashMap::new();

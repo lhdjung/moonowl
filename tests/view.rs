@@ -1,5 +1,5 @@
-//! Trimming the margins and turning the page — Phase 3 item 6, the two halves
-//! of it that are about the *page* rather than about the window.
+//! Trimming the margins and turning the page, which are about the *page*
+//! rather than about the window.
 //!
 //! Both are asked of the interface. What a reader would check is the shape of
 //! what is in front of them and where the ink sits in it, so that is what is
@@ -73,11 +73,10 @@ fn expected_crop() -> (f64, f64, f64, f64) {
 /// Throw the "Trim the margins" switch, which is the whole of the interface
 /// for it.
 ///
-/// **The toolbar used to carry a Trim chip and does not any more.** The app
-/// has never had one, and the reason is what the chip was: trimming is
-/// something somebody turns on for a scanned book and leaves on, not a thing
-/// pressed twice in an hour — and a permanent button for it took a place in
-/// the bar that the page controls wanted. It is the fourth field on the
+/// **The toolbar carries no Trim chip.** Trimming is something somebody
+/// turns on for a scanned book and leaves on, not a thing pressed twice in an
+/// hour, and a permanent button for it would take a place in the bar that the
+/// page controls want. It is the fourth field on the
 /// Reading page and the first switch on it.
 fn trim(reader: &mut Reader) {
     reader.press_chord("mod+,");
@@ -215,8 +214,8 @@ fn turning_the_page_turns_the_document_and_four_quarters_is_where_it_started() {
 
 /// **A turn draws over the page that is there.** The page keeps its node, and
 /// with it the texture it has, so it is never blank while the turned drawing
-/// is on its way. Every page re-keyed at once was blank until pdfium had drawn
-/// it again.
+/// is on its way. A page given a new key would be blank until pdfium had
+/// drawn it again.
 #[test]
 fn a_turn_keeps_each_page_and_draws_over_it() {
     let mut reader = margined();
@@ -328,8 +327,8 @@ fn a_document_can_be_turned_and_trimmed_at_once() {
     );
 }
 
-/// **A pinch zooms around the pointer.** Kept at the top edge, whatever was
-/// under the fingers in the middle of the screen slid down and off it.
+/// **A pinch zooms around the pointer.** Kept at the top edge, whatever is
+/// under the fingers in the middle of the screen would slide down and off it.
 #[test]
 fn a_pinch_keeps_what_is_under_the_pointer() {
     let mut reader = moonowl::harness::Reader::open(&moonowl::harness::Reader::book());
@@ -394,8 +393,8 @@ fn the_interface_size_is_a_setting_with_a_field() {
 }
 
 /// **⌘+ keeps the middle of the window where it was**, as a pinch keeps what
-/// is under the fingers: kept by its top edge, a line two thirds down went
-/// off the bottom at the second press.
+/// is under the fingers: kept by its top edge, a line two thirds down would
+/// go off the bottom at the second press.
 #[test]
 fn zooming_by_key_keeps_the_middle_of_the_window() {
     let mut reader = moonowl::harness::Reader::open(&moonowl::harness::Reader::book());

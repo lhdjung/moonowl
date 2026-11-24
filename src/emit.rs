@@ -357,7 +357,8 @@ pub fn stopped_at() -> Option<std::time::Duration> {
     STOPPED.with(|clock| clock.borrow().as_ref().map(|clock| clock.now))
 }
 
-/// News, sent after a delay, on **one** thread for the whole process.
+/// An event, sent to `post` after a delay, on **one** thread for the whole
+/// process.
 ///
 /// **Not a thread apiece.** The page pill's timer is armed by every change in
 /// the scroll offset, which is one per frame of a gesture, so a minute of
@@ -371,7 +372,11 @@ pub fn stopped_at() -> Option<std::time::Duration> {
 /// keep its "restarted by every scroll" shape — the stale ones still fire, and
 /// both `unflash_pill` and the notice already ignore an answer that is no
 /// longer about anything.
-pub fn after(delay: std::time::Duration, post: Post, news: News) {
+pub fn after(delay: std::time::Duration, post: Post, event: Event) {
+    let news = News {
+        event,
+        target: None,
+    };
     use std::sync::Condvar;
     let stopped = STOPPED.with(|clock| {
         let mut clock = clock.borrow_mut();
@@ -463,8 +468,8 @@ mod tests {
         }
     }
 
-    /// What `emit_to` is for, and the whole of what changed when there was
-    /// more than one window: a recompiled paper reaches the window reading it.
+    /// What `emit_to` is for: a recompiled paper reaches the window reading
+    /// it.
     #[test]
     fn news_for_one_window_reaches_that_window_alone() {
         let exchange = Exchange::new();

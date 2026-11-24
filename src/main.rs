@@ -1,7 +1,8 @@
 //! The reader, run.
 //!
-//! ```text cargo run --release                          # what you were reading
-//! last cargo run --release -- ~/paper.pdf           # a document of your own
+//! ```text
+//! cargo run --release                          # what you were reading last
+//! cargo run --release -- ~/paper.pdf           # a document of your own
 //! ```
 //!
 //! With no path it opens whatever was open when the reader was last put down,
@@ -43,7 +44,7 @@ fn main() {
         moonowl::objects::work_apart(executable);
     }
     // **A panic is written down**, because a release build on Windows has no
-    // console and a crash there said nothing at all. Appended to `crash.log`
+    // console and a crash there would say nothing at all. Appended to `crash.log`
     // in the config directory, then the default hook as before.
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -85,37 +86,12 @@ fn main() {
         .get("window_maximized")
         .and_then(|value| value.as_bool())
         .unwrap_or(true);
-    // `--theme N` is a place in the theme list, and the list is every theme
-    // the app ships, read out of the `themes/` files through the theme
-    // loader. Absent means whatever the last run wore.
-    let theme = args
-        .iter()
-        .position(|arg| arg == "--theme")
-        .and_then(|at| args.get(at + 1))
-        .and_then(|value| value.parse::<usize>().ok());
-    // Every argument that is not a flag is a document, whatever it is called:
-    // pdfium decides what a PDF is, and says so if it is not. The first goes
-    // in the launch window, the rest where any document from outside goes.
-    let mut paths = Vec::new();
-    let mut given = args.iter().skip(1);
-    while let Some(arg) = given.next() {
-        if arg == "--theme" || arg == "--synctex-forward" {
-            given.next();
-        } else if !arg.starts_with('-') {
-            paths.push(moonowl::config::absolute(arg));
-        }
-    }
-    let mut paths = paths.into_iter();
-    let named = paths.next();
-    let others: Vec<String> = paths.collect();
-    // `--synctex-forward LINE:COLUMN:FILE.tex FILE.pdf`, from an editor:
-    // show the place that line made in the document. See `synctex.rs`.
-    let forward = args
-        .iter()
-        .position(|arg| arg == "--synctex-forward")
-        .and_then(|at| args.get(at + 1))
-        .zip(named.as_deref())
-        .and_then(|(spot, pdf)| moonowl::synctex::Forward::parse(spot, pdf));
+    let moonowl::launch::Launch {
+        theme,
+        named,
+        others,
+        forward,
+    } = moonowl::launch::read(args.get(1..).unwrap_or_default());
     let config = Config {
         theme,
         ..Config::here()
@@ -165,8 +141,8 @@ fn main() {
         (Some(path), Some(Err(render::Refusal::Locked))) => {
             println!("reader: {path} is locked — the window will ask for the password")
         }
-        // The window says why (see `Session::window_on`); exiting here was a
-        // launch from a file manager that did nothing at all.
+        // The window says why (see `Session::window_on`); exiting here would
+        // be a launch from a file manager that does nothing at all.
         (Some(path), Some(Err(_))) if !std::path::Path::new(path).exists() => {
             eprintln!("Run it with no path at all to open whatever you were reading last.");
         }
@@ -213,10 +189,10 @@ fn main() {
     // **The launch window, and there is exactly one.** Decided at the first
     // `can_create_surfaces` rather than here, because that is when a Finder
     // launch's documents are known (see `openfiles::launched`): deciding
-    // earlier restored the last document and then gave the double-clicked one
-    // a second window in front of it. What it is on, in order: the command
+    // earlier would restore the last document and then give the double-clicked
+    // one a second window in front of it. What it is on, in order: the command
     // line, the Finder, the document read most recently (`store::reopening` —
-    // restoring every window cascaded them off the screen), the start screen.
+    // restoring every window would cascade them off the screen), the start screen.
     {
         let session = session_maker.clone();
         let dir = config.dir.clone();

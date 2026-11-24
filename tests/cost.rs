@@ -1,11 +1,8 @@
 //! What a reading session costs, asserted rather than observed.
 //!
-//! Taking the floor apart ended with this on the list — see `PROGRESS.md`:
-//! the harness needs a memory assertion, and `footprint_mb()` is what it
-//! should assert on, because "three
-//! copies of every page" is exactly the shape a test catches and a reading
-//! session does not. It cost 96MB and went unnoticed through the whole of
-//! Phase 1.
+//! The harness needs a memory assertion, and `footprint_mb()` is what it
+//! asserts on, because "three copies of every page" is exactly the shape a
+//! test catches and a reading session does not.
 //!
 //! Two things about how it is asserted. It is a *growth* bound rather than a
 //! ceiling: what the process costs to start depends on the machine, the
@@ -107,13 +104,10 @@ fn reading_a_book_does_not_grow_without_bound() {
     // test functions running at once would each be reading the other's
     // pages.
     //
-    // `AGENTS.md` says the app's memory table was measured with the sidebar
-    // shut, and warns in as many words that "if you are measuring, open the
-    // Pages tab and scroll it, because that is where a fourth leak would hide
-    // next" — the column there drew a thumbnail for every page it passed and
-    // gave none of them back. Here a thumbnail belongs to its row and a row
-    // is unmounted the moment it leaves the band, so scrolling four hundred
-    // pages of column should cost what a screenful of it costs.
+    // The Pages tab, open and scrolled, is where a leak would hide next. A
+    // thumbnail belongs to its row and a row is unmounted the moment it
+    // leaves the band, so scrolling four hundred pages of column should cost
+    // what a screenful of it costs.
     reader.press_chord("mod+b");
     // book.pdf has no table of contents, so the panel opens on the pages.
     assert_eq!(reader.state().sidebar.as_deref(), Some("pages"));
@@ -168,4 +162,71 @@ fn reading_a_book_does_not_grow_without_bound() {
         0,
         "and closing the bar gives it back"
     );
+}
+
+/// Seven hundred short pages, which count how often each page's links are
+/// read.
+struct Counted {
+    asked: std::sync::Mutex<Vec<usize>>,
+}
+
+impl moonowl::render::PageSource for Counted {
+    fn pages(&self) -> usize {
+        700
+    }
+
+    fn size_of(&self, _index: usize) -> moonowl::layout::Size {
+        moonowl::layout::Size {
+            width: 612.0,
+            height: 20.0,
+        }
+    }
+
+    fn render(
+        &self,
+        _index: usize,
+        width: u32,
+        height: u32,
+        _view: moonowl::layout::View,
+        take: &mut dyn FnMut(moonowl::render::Bitmap),
+    ) -> Result<(), String> {
+        let bgra = vec![255u8; (width as usize) * (height as usize) * 4];
+        take(moonowl::render::Bitmap {
+            width,
+            height,
+            bgra: &bgra,
+            drew_in: 0.0,
+        });
+        Ok(())
+    }
+
+    fn links_of(&self, index: usize) -> Vec<moonowl::render::Link> {
+        self.asked.lock().unwrap().push(index);
+        Vec::new()
+    }
+
+    fn opened_in(&self) -> f64 {
+        0.0
+    }
+}
+
+/// **The links, notes and fields of a long book are not all kept.** Read
+/// through to the end, the first page has let go of them, and they are read
+/// again when it is back on screen.
+#[test]
+fn a_long_books_links_are_not_all_kept() {
+    let document = std::sync::Arc::new(Counted {
+        asked: Default::default(),
+    });
+    let mut reader = Reader::over(document.clone(), options());
+    reader.settle();
+    while reader.state().page < 700 {
+        reader.press("PageDown");
+        reader.settle();
+    }
+    reader.press("Home");
+    reader.settle();
+    let asked = document.asked.lock().unwrap();
+    assert!(asked.len() > 512, "{} pages read", asked.len());
+    assert_eq!(asked.iter().filter(|&&index| index == 0).count(), 2);
 }
