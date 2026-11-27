@@ -485,8 +485,12 @@ it has no text, or if pictures cover a tenth of it or more, and only the
 words where the page has no text of its own are kept (`ocr::recognise`):
 a scan with a stamped line, one recognised only in part, or a table pasted
 in as a picture. The words are found on a
-thread first, a page at a time through `grey_aside`, and the copy is
-then written on another, from the file only if it has not changed on disk
+thread first: the pages are drawn there one at a time through
+`grey_aside`, which holds pdfium's lock only while it draws, and read by
+the engine on up to four threads at once (`ocr::engines`), each Tesseract
+limited to one thread of its own. On 40 scanned pages that took Tesseract
+from 13 seconds to 4, and Vision, which shares the Neural Engine, from 7
+to 5.4. The copy is then written on another thread, from the file only if it has not changed on disk
 since. The engine is Vision on macOS (through `objc2`, with no
 crate of its own) and the `tesseract` command elsewhere; a box is the
 word's width and its line's height on both. A signed document is refused,

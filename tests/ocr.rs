@@ -7,6 +7,7 @@ use moonowl::harness::Reader;
 use moonowl::layout::View;
 use moonowl::ocr;
 use moonowl::render::{self, PageSource};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const PLAIN: View = View {
     rotation: 0,
@@ -536,22 +537,23 @@ fn a_figure_inside_a_form_is_pictured_where_it_is() {
 }
 
 /// A page the engine fails on is counted and left out, and the other pages
-/// are still read.
+/// are still read, in order. Pages are read on several threads, so which
+/// page the engine is asked about first is not known.
 #[test]
 fn a_page_the_engine_fails_on_is_counted_and_the_rest_are_read() {
     let document = render::open(&fixture::scanned_pdf()).unwrap();
-    let calls = std::cell::Cell::new(0);
-    let found = ocr::recognise_with(&*document, &Default::default(), |_, _, _, _, _| {
-        calls.set(calls.get() + 1);
-        match calls.get() {
-            1 => Err("Tesseract did not answer in time.".into()),
-            _ => Ok(Vec::new()),
-        }
+    let calls = AtomicUsize::new(0);
+    let found = ocr::recognise_with(&*document, &Default::default(), |_, _, _, _, _| match calls
+        .fetch_add(1, Ordering::Relaxed)
+    {
+        0 => Err("Tesseract did not answer in time.".into()),
+        _ => Ok(Vec::new()),
     })
     .expect("the other pages are kept");
     assert_eq!(found.failed, 1);
     let pages: Vec<usize> = found.pages.iter().map(|(page, _)| *page).collect();
-    assert_eq!(pages, [2, 3, 4, 5]);
+    assert_eq!(pages.len(), 4);
+    assert!(pages.is_sorted(), "{pages:?}");
     // When every page fails, the reason is said instead of a count.
     let found = ocr::recognise_with(&*document, &Default::default(), |_, _, _, _, _| {
         Err("Tesseract did not answer in time.".into())
@@ -564,19 +566,18 @@ fn a_page_the_engine_fails_on_is_counted_and_the_rest_are_read() {
 #[test]
 fn a_stop_during_the_last_page_saves_no_copy() {
     let document = render::open(&fixture::scanned_pdf()).unwrap();
-    let calls = std::cell::Cell::new(0);
+    let calls = AtomicUsize::new(0);
     ocr::recognise_with(&*document, &Default::default(), |_, _, _, _, _| {
-        calls.set(calls.get() + 1);
+        calls.fetch_add(1, Ordering::Relaxed);
         Ok(Vec::new())
     })
     .unwrap();
-    let last = calls.get();
+    let last = calls.load(Ordering::Relaxed);
     for stopped in [true, false] {
         let stop = std::sync::atomic::AtomicBool::new(false);
-        let seen = std::cell::Cell::new(0);
+        let seen = AtomicUsize::new(0);
         let found = ocr::recognise_with(&*document, &stop, |_, _, _, _, stop| {
-            seen.set(seen.get() + 1);
-            if seen.get() < last {
+            if seen.fetch_add(1, Ordering::Relaxed) + 1 < last {
                 return Ok(Vec::new());
             }
             stop.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -631,4 +632,25 @@ fn a_tesseract_given_up_on_ends_what_it_started() {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     assert!(!alive(), "the program it started is still running");
+}
+
+/// **Pages are read at once** where the machine has the cores for it: the
+/// engine is asked about a second page before it has answered the first.
+#[test]
+fn pages_are_read_at_once() {
+    if std::thread::available_parallelism().map_or(1, |cores| cores.get()) < 3 {
+        return;
+    }
+    let document = render::open(&fixture::scanned_pdf()).unwrap();
+    let (reading, most) = (AtomicUsize::new(0), AtomicUsize::new(0));
+    let found = ocr::recognise_with(&*document, &Default::default(), |_, _, _, _, _| {
+        let now = reading.fetch_add(1, Ordering::SeqCst) + 1;
+        most.fetch_max(now, Ordering::SeqCst);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        reading.fetch_sub(1, Ordering::SeqCst);
+        Ok(Vec::new())
+    })
+    .unwrap();
+    assert_eq!(found.pages.len(), 5);
+    assert!(most.load(Ordering::SeqCst) > 1, "one page at a time");
 }
