@@ -52,7 +52,7 @@ fn several_files_are_recognised_at_once() {
     }
     let again = run();
     assert!(!again.status.success());
-    assert!(String::from_utf8_lossy(&again.stderr).contains("is already there"));
+    assert!(String::from_utf8_lossy(&again.stderr).contains("already exists"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

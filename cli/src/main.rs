@@ -109,6 +109,9 @@ fn pages_of(input: &str, wanted: &str, out: &str) -> Result<String, String> {
 }
 
 fn write_new(sheets: &[arrange::Sheet], out: &str) -> Result<String, String> {
+    if std::path::Path::new(out).exists() {
+        return Err(format!("{out} already exists."));
+    }
     let links_lost = arrange::assemble_new(None, sheets, arrange::Layout::One, out, &[])?;
     let pages = sheets.len();
     let mut said = format!("Saved {pages} page{} as {out}.", plural(pages));
@@ -186,7 +189,7 @@ fn split_at_chapters(input: &str, folder: &str) -> Result<String, String> {
         })
         .collect();
     if let Some((_, taken)) = parts.iter().find(|(_, to)| to.exists()) {
-        return Err(format!("{} is already there.", taken.display()));
+        return Err(format!("{} already exists.", taken.display()));
     }
     std::fs::create_dir_all(folder).map_err(|e| format!("{folder}: {e}"))?;
     let mut links_lost = false;
@@ -214,7 +217,7 @@ fn split_at_chapters(input: &str, folder: &str) -> Result<String, String> {
 /// `a` and `b` compared word by word, and the report saved as `out`.
 fn compare_into(a: &str, b: &str, out: &str) -> Result<String, String> {
     if std::path::Path::new(out).exists() {
-        return Err(format!("{out} is already there."));
+        return Err(format!("{out} already exists."));
     }
     let (there, here) = (open(a)?, open(b)?);
     let changes = compare::compare(&*here, &*there)?;
@@ -348,7 +351,7 @@ fn pdfs_in(path: &str) -> Result<Vec<String>, String> {
 /// time, since the other files use the other cores.
 fn recognise(input: &str, out: &str, alone: bool) -> Result<String, String> {
     if std::path::Path::new(&out).exists() {
-        return Err(format!("{out} is already there."));
+        return Err(format!("{out} already exists."));
     }
     let document = open(input)?;
     let read = document.stamp();
