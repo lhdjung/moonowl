@@ -646,7 +646,7 @@ pub trait PageSource: Send + Sync {
     /// does not grant either.
     ///
     /// So the write path lets go first and reopens immediately afterwards:
-    /// [`crate::app::Viewer::mark_selection`] releases, writes, and reloads
+    /// `Viewer::mark_selection` in the app releases, writes, and reloads
     /// the document through the path a recompile already uses. A released
     /// document renders nothing and answers nothing, which is safe rather
     /// than merely tolerable — every caller of every method here already
@@ -703,7 +703,7 @@ pub trait PageSource: Send + Sync {
     /// [`Self::release`] and the reopen after it. A page refused while this
     /// is true was not refused: it is the same page a moment later, and the
     /// widget keeps what it has rather than remembering a failure. See
-    /// [`crate::page::PageWidget`].
+    /// `PageWidget` in the app.
     fn released(&self) -> bool {
         false
     }
@@ -784,7 +784,7 @@ pub fn open_with(path: &str, password: Option<&str>) -> Result<Arc<dyn PageSourc
 /// already says. Here `pages()` is 0, the layout has no boxes, the mounting
 /// window holds nothing, `page()` is 0, the search finds nothing and the
 /// sidebar has nothing to draw. Everything above carries on being written for
-/// a document, and one predicate — [`crate::app::Viewer::empty`] — decides
+/// a document, and one predicate — `Viewer::empty` in the app — decides
 /// what is on the screen.
 ///
 /// It is also the honest shape. A window that is showing nothing is not a

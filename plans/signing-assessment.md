@@ -1,8 +1,91 @@
 # Signing a PDF: what it would take
 
 Asked while reading: *any chance to add document signing?* The short answer is
-that "signing" is two unrelated features wearing one word, and Moonowl is a
-couple of days from one of them and a month from the other.
+that "signing" is two unrelated features under one word. Moonowl has built
+the first, a visible signature, and reads the second; writing a
+cryptographic signature is not built.
+
+**Built.** This was a pre-build assessment. What got built is summarised
+under "What was built" just below, and the code is `src/sign.rs` (the
+signature, the typed line, and the document's own signatures read),
+`src/app/dialogs.rs` (the Sign window) and `src/app/ink.rs` (placing and
+removing). The reasoning that led there follows it and still stands, except
+where "What was built" says otherwise.
+
+## What was built
+
+**The visible signature is built**, in `src/sign.rs`. It follows the
+recommendation at the end with one deliberate departure and one caveat
+settled the other way.
+
+*Ink, not a stamp.* `/Ink` is the specification's own annotation for a mark
+made by hand; `create_stamp_annotation` with an image in it is a rubber stamp.
+Ink is vector — a signature read at 400% is drawn from its strokes rather than
+resampled — it needs no rasteriser, and every other reader shows it as what it
+is and offers to delete it.
+
+*Which settles the caveat about removal.* "It cannot be removed afterwards"
+is true of this app and not of pdfium: `FPDFPage_RemoveAnnot` is one call,
+the same one a highlight comes out through. So the Sign window lists what is
+already on the document with a bin beside each row.
+
+*A signed document is not refused, and not asked about.* Ink goes into a
+cryptographically signed document as an incremental update:
+`objects::incremental` compares pdfium's full rewrite with the file object by
+object and appends only what changed, through lopdf, so the signed bytes stay
+as they were. A signed document whose change cannot be appended is not
+written at all, and a certified one whose `/DocMDP` `/P` is below 3 refuses
+ink, since its certification allows no annotations (`markup::standing`,
+`objects::Update`).
+
+*And the line beside it.* "Also a date field and a plain text field, because
+the form under a signature usually wants both" — both are there, as one field
+with a **Today** button beside it, placed by the same click that places a
+signature. "Add text here…" in a page's right-click menu opens a field where
+the click was and writes its words the same way (`app/forms.rs`). They go in as a `/Stamp` holding a text object
+(`sign::place_text`) rather than the `/FreeText` the specification has for
+this: `pdfium-render` exposes `objects_mut()` on ink and stamp alone, and a
+free text annotation with an empty appearance stream is text no reader draws,
+pdfium's own included. The text is set in Helvetica, or in a system font put
+into the file when the line has letters Helvetica lacks.
+
+*And the document's own signatures are read.* The recommendation asks for
+this beside the writing and it is built: the Sign window lists every `/Sig`
+the document carries under "Digital signatures", after the sentence saying
+that a drawn signature is not a digital one (`sign::Seal`).
+
+**One line of the recommendation is wrong, and reading them is what showed
+it.** "pdfium's eight getters are enough to say *this document is signed by X,
+and the bytes still match the range that was signed*" — they are not.
+
+* *There is no name getter.* The signer's name is in the certificate inside the
+  PKCS#7 blob. Reading it means parsing DER and choosing between several common
+  names in a chain, and a guess about who signed a contract is worse than
+  silence.
+* *There is no digest check.* "The bytes still match" is a hash over the byte
+  ranges compared against the message digest in that same blob.
+* *Two of the eight are unreachable through pdfium.* `pdfium-render 0.9.3`
+  wraps neither `FPDFSignatureObj_GetByteRange` nor `GetSubFilter`, and keeps
+  both `PdfSignature`'s handle and `PdfDocument`'s `pub(crate)` — so there is
+  no door onto them. The byte range is what would answer "was anything
+  appended after this was signed", which is the one useful thing obtainable
+  with no crypto at all. lopdf, which the app now carries for its own
+  writes, can read `/ByteRange` (`objects::signed` looks for it), but the
+  Sign window does not use it yet.
+
+What the getters *are* enough for is four certain facts: that something was
+signed, when it says it was, why, and whether it forbids changes. That is what
+is shown (`Seal::says`).
+
+**The first of those four needs care.** `FPDF_GetSignatureCount` counts every
+`/FT /Sig` field in the `/AcroForm` whether or not anybody has signed it — a
+blank one is the line at the foot of a contract, put there by whoever wrote
+the contract. `/Contents` tells them apart: a field with nothing in it is
+listed as "waiting to be signed", and only a signature with something in its
+`/Contents` counts as signed (`markup::signed`, `Seal::filled`).
+`tests/fixtures/signed.pdf` is such a blank field.
+
+`dormant/experiments/PROGRESS.md` has the long form.
 
 ## The two things
 
@@ -40,7 +123,8 @@ because the form under a signature usually wants both.
 
 One caveat worth stating up front: **it cannot be removed afterwards** by the
 same route markup can, unless it goes through the same rebuild-from-backup
-path. Decide that before shipping it, not after.
+path. Decide that before shipping it, not after. (It was decided the other
+way: see "What was built".)
 
 ## The cryptographic signature: not reachable from here
 
@@ -52,12 +136,14 @@ pdfium's entire signature surface is eight functions and all eight read:
 reason, time and DocMDP permission. There is no writer, and there is no
 plan to add one.
 
-Worse, the save is wrong for this by construction. `save_to_bytes` is
+Worse, pdfium's save is wrong for this by construction. `save_to_bytes` is
 `FPDF_SaveAsCopy` with flags hard-coded to 0 — a **full rewrite** of the
 document. A signature covers a byte range of a specific file; rewriting the
-file is precisely what a signature exists to detect. So even a signature
-written by some other means would be destroyed the first time a reader marked
-a passage.
+file is precisely what a signature exists to detect. The app works around
+this for its own changes: for a signed document, `objects::incremental`
+compares pdfium's save with the file and appends only the objects that
+changed, through lopdf, so a highlight or ink leaves an existing signature
+intact. That keeps a signature; it does not make one.
 
 The retired Tauri app was no better off. pdf.js's `saveDocument()` *does* write
 a proper incremental update, but `saveNewAnnotations` in the worker has cases
@@ -71,8 +157,9 @@ The parts, in the order they bite:
 1. **An incremental-update writer.** Append to the file rather than rewriting
    it: a new `/Sig` object, an `/AcroForm` with `/SigFlags 3`, a widget
    annotation for the signature field, an updated page object, a fresh xref
-   section and trailer pointing back at the old one. Roughly the shape
-   `markup.rs` describes and deliberately does not do.
+   section and trailer pointing back at the old one. `objects::incremental`
+   already appends an update after the signed bytes; what it does not do is
+   write a `/Sig` or reserve room for one.
 
 2. **The `/ByteRange` chicken-and-egg.** The signature covers the whole file
    *except* the hex string holding the signature. So: write the file with a
@@ -122,77 +209,9 @@ tail as certificate formats and trust lists move.
   out to a signing tool they already have. Honest, cheap, and nobody's trust
   chain becomes our problem.
 - **Build it on crates, not on pdfium.** If it is ever really wanted: `lopdf`
-  for the incremental update and a CMS crate for the blob, with the key coming
+  for the incremental update (it is already in the app, and already writes
+  incremental updates) and a CMS crate for the blob, with the key coming
   from the platform store. This is the real version of the estimate above.
-
-## What was built
-
-**The visible signature is built**, in `src/sign.rs`. It follows the
-recommendation below with one deliberate departure and one caveat settled the
-other way.
-
-*Ink, not a stamp.* `/Ink` is the specification's own annotation for a mark
-made by hand; `create_stamp_annotation` with an image in it is a rubber stamp.
-Ink is vector — a signature read at 400% is drawn from its strokes rather than
-resampled — it needs no rasteriser, and every other reader shows it as what it
-is and offers to delete it.
-
-*Which settles the caveat above.* "It cannot be removed afterwards" is true of
-this app and not of pdfium: `FPDFPage_RemoveAnnot` is one call, the same one a
-highlight comes out through. So the Sign window lists what is already on the
-document with a bin beside each row, and the feature ships with the caveat
-answered rather than carried.
-
-*A signed document is asked about, not refused.* pdfium's save is a full
-rewrite, so ink into a cryptographically signed document ends the signature it
-carried. The reader is told once, before it happens, in a sentence that names
-the consequence rather than the mechanism.
-
-*And the line beside it.* "Also a date field and a plain text field, because
-the form under a signature usually wants both" — both are there, as one field
-with a **Today** button beside it, placed by the same click that places a
-signature. They go in as a `/Stamp` holding a Helvetica text object rather than
-the `/FreeText` the specification has for this: `pdfium-render` exposes
-`objects_mut()` on ink and stamp alone, and a free text annotation with an
-empty appearance stream is text no reader draws, pdfium's own included.
-
-*And the document's own signatures are read.* The recommendation below asks
-for this beside the writing and it is built: the Sign window lists every
-`/Sig` the document carries, before the pad and under the sentence saying what
-this feature is not.
-
-**One line of the recommendation is wrong, and reading them is what showed
-it.** "pdfium's eight getters are enough to say *this document is signed by X,
-and the bytes still match the range that was signed*" — they are not.
-
-* *There is no name getter.* The signer's name is in the certificate inside the
-  PKCS#7 blob. Reading it means parsing DER and choosing between several common
-  names in a chain, and a guess about who signed a contract is worse than
-  silence.
-* *There is no digest check.* "The bytes still match" is a hash over the byte
-  ranges compared against the message digest in that same blob.
-* *Two of the eight are unreachable anyway.* `pdfium-render 0.9.3` wraps
-  neither `FPDFSignatureObj_GetByteRange` nor `GetSubFilter`, and keeps both
-  `PdfSignature`'s handle and `PdfDocument`'s `pub(crate)` — so there is no
-  door onto them. The byte range is what would have answered "was anything
-  appended after this was signed", which is the one useful thing obtainable
-  with no crypto at all.
-
-What the getters *are* enough for is four certain facts: that something was
-signed, when it says it was, why, and whether it forbids changes. That is what
-is shown.
-
-**And the first of those four was a bug.** `FPDF_GetSignatureCount` counts
-every `/FT /Sig` field in the `/AcroForm` whether or not anybody has signed it
-— a blank one is the line at the foot of a contract, put there by whoever wrote
-the contract. So the warning above fired on documents nobody had signed,
-including this repository's own `tests/fixtures/signed.pdf`, which is a field
-and not a signature. `/Contents` tells them apart.
-
-`dormant/experiments/PROGRESS.md` has the long form, including the two faults
-the feature turned up in code that was already there.
-
-Everything below stands as written.
 
 ## Recommendation
 

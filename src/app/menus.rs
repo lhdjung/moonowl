@@ -245,6 +245,13 @@ pub(super) fn document_items(
                             onclick: move |_| viewer.write().save_flattened(),
                             "Flattened"
                         }
+                        button {
+                            class: "chip action menu-export-format",
+                            "data-item": "save-clean",
+                            title: "A copy without highlights, notes or comments. Links, form fields and signatures stay.",
+                            onclick: move |_| viewer.write().save_clean(),
+                            "Clean copy"
+                        }
                         if highlighted {
                             button {
                                 class: "chip action menu-export-format",
@@ -829,9 +836,8 @@ pub(super) fn mark_menu_rows(
             class: "menu-item mark-remove",
             "data-item": "remove",
             onclick: move |_| {
-                if !viewer.write().remove_markup(&key) {
-                    viewer.write().close_mark();
-                }
+                viewer.write().remove_markup(&key);
+                viewer.write().close_mark();
             },
             Icon { name: "trash", stroke: ink.clone() }
             span { class: "menu-label", "Remove highlight" }

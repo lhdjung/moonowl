@@ -45,6 +45,16 @@ reasoning behind each built feature, is `plans/page-edits.md` at commit
 
 ## Additions to what is built
 
+- **Notes in the highlights export**: sticky notes and text boxes from
+  other programs, with their page and author. See `pdfmt-assessment.md`.
+- **Choosing what a clean copy leaves out.** `markup::Leaving` can take
+  out highlights or notes alone; the menu takes out both.
+- **More in `moonowl-cli`**, from `pdfmt-assessment.md`:
+  `moonowl annotations list|export|remove` over `markup::copy_without`,
+  `split --ranges` with a page in several files (a cover in every part),
+  an `<area> <action>` grammar with help for each area, and shell
+  completions.
+
 - **Following a reference that has no link, through the link preview.**
   ⌘-click follows "[12]" or "Figure 3" (`Viewer::follow_reference`);
   resting on such a phrase could show where it leads in the same card a
@@ -72,6 +82,14 @@ reasoning behind each built feature, is `plans/page-edits.md` at commit
 
 ## Not planned
 
+- **Writing a highlight in the helper process**, so that pdfium's lock is
+  not held while the document is saved. Measured on 27 November 2026, a
+  highlight held the lock for 0.04 to 0.21 seconds on scans and books of
+  34 to 65MB, and for 0.63 seconds on a 1,668-page encyclopedia of 30MB:
+  the number of pages counts more than the size. Only a page that comes
+  into view during that moment waits, and the helper would add the time it
+  takes to start and to send the file both ways. Worth doing only if a
+  real document holds the lock for well over a second.
 - **Rewriting the page's own text.** A PDF usually carries only the
   letters its text uses, so a new letter often has no shape to draw it
   with, and lines never reflow. It works in a demonstration and fails on

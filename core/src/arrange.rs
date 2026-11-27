@@ -1729,6 +1729,88 @@ pub struct Chapter {
     pub next: Option<(usize, Pin)>,
 }
 
+/// The chapters of a document with `pages` pages, read off its contents
+/// (`headings`): each heading at the top level, with the pages from its own
+/// to the page before the next one's. Where the top level has one heading,
+/// usually the document's title, the headings under it are the chapters.
+/// Pages before the first chapter are one more, "Front matter". Whether a
+/// chapter also takes the page where the next one begins is decided by
+/// [`cuts`].
+pub fn chapters(headings: &[crate::render::Heading], pages: usize) -> Vec<Chapter> {
+    let top = match headings.iter().filter(|h| h.depth == 0).count() {
+        1 => 1,
+        _ => 0,
+    };
+    let mut starts: Vec<(usize, &str, Option<Pin>)> = (headings.iter())
+        .filter(|heading| heading.depth == top)
+        .filter_map(|heading| Some((heading.page?, heading.title.as_str(), heading.spot)))
+        .collect();
+    // In page order, and one chapter to a page: two headings on one
+    // page are one chapter, under the first one's name.
+    starts.sort_by_key(|(page, _, _)| *page);
+    starts.dedup_by_key(|(page, _, _)| *page);
+    if starts.first().is_some_and(|(page, _, _)| *page > 1) {
+        starts.insert(0, (1, "Front matter", None));
+    }
+    let end = pages + 1;
+    (starts.iter().enumerate())
+        .map(|(at, (from, title, _))| {
+            let next = starts.get(at + 1);
+            Chapter {
+                title: title.to_string(),
+                pages: (*from..next.map_or(end, |(next, _, _)| *next)).collect(),
+                next: next.and_then(|(page, _, spot)| Some((*page, (*spot)?))),
+            }
+        })
+        .collect()
+}
+
+/// Where a new file begins for each of `chapters`: its title, its first
+/// page (one-based), and whether that page is also the last page of the
+/// chapter before, which then goes into both files. It reads the pages'
+/// text, so it is called off the window's thread.
+pub fn cuts(
+    document: &dyn crate::render::PageSource,
+    chapters: Vec<Chapter>,
+) -> Vec<(String, usize, bool)> {
+    let mut shared = false;
+    (chapters.into_iter())
+        .map(|chapter| {
+            let starts = (chapter.title, chapter.pages[0], shared);
+            shared = chapter
+                .next
+                .is_some_and(|(page, spot)| ends_there(document, page, spot));
+            starts
+        })
+        .collect()
+}
+
+/// A heading as part of a file name: without the characters some systems
+/// do not allow in one, with a dash for each run of spaces, and not too
+/// long. A name may have at most 255 bytes on most systems, so 80
+/// characters are also held to 200 bytes, which leaves room for the rest of
+/// the name.
+pub fn file_safe(title: &str) -> String {
+    let kept: String = (title.chars())
+        .map(|c| {
+            if c.is_control() || "/\\:*?\"<>|".contains(c) {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
+    let words: Vec<&str> = kept.split_whitespace().collect();
+    let mut name = words.join("-");
+    if let Some((cut, _)) = name.char_indices().nth(80) {
+        name.truncate(cut);
+    }
+    while name.len() > 200 {
+        name.pop();
+    }
+    name.trim_end_matches(['.', '-']).to_string()
+}
+
 /// Whether `page` (one-based) holds the end of a chapter as well as the
 /// start of the next, whose heading points to `spot` on it. It does when
 /// there is text above the heading. Lines that the pages around it repeat
@@ -1930,6 +2012,18 @@ pub(crate) fn lines(text: &PageText) -> Vec<Line> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_file_name_is_held_to_its_length_in_bytes() {
+        let emoji = "\u{1f989}".repeat(80);
+        let name = super::file_safe(&emoji);
+        assert!(
+            name.len() <= 200 && name.len().is_multiple_of(4),
+            "{}",
+            name.len()
+        );
+        assert_eq!(super::file_safe("A/B: c"), "A-B-c");
+    }
+
     use super::*;
 
     /// Pages put in order by pdfium keep the box and the turn they took

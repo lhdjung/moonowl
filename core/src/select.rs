@@ -808,9 +808,9 @@ mod tests {
 
         // …and a line pdfium broke in two at a superscript is one line.
         let mut text = page(&[("steel67", false, false), (". Next", false, false)]);
-        for at in 5..7 {
-            text.boxes[at].top -= 3.0;
-            text.boxes[at].height = 7.0;
+        for glyph in &mut text.boxes[5..7] {
+            glyph.top -= 3.0;
+            glyph.height = 7.0;
         }
         for at in 9..text.chars.len() - 2 {
             text.boxes[at].top = text.boxes[0].top;

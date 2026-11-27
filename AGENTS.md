@@ -87,10 +87,23 @@ branches stay, so older commits still build.
 [Dioxus]: https://dioxuslabs.com
 [Blitz]: https://github.com/DioxusLabs/blitz
 
+**Two crates in one workspace.** `core/` is `moonowl-core`: the documents,
+the settings and the themes, with no interface crate in it (no Dioxus,
+Blitz, winit or wgpu). `src/` is the app, which depends on it and re-exports
+each of its modules under its own name, so `crate::layout` means the same
+module in both and the tests reach everything as `moonowl::…`. A module that
+needs the interface stays in `src/`; anything the core needs from the app is
+a doc comment naming it in words, never a `use`.
+
+`cli/` is the command-line tool, `moonowl`, a third member that depends
+on the core alone. It is built as `moonowl-cli`, since it shares the
+target folder with the app's `Moonowl` and macOS does not tell the two
+names apart, and `scripts/install-cli.sh` (or `.ps1`) installs it as `moonowl`.
+
 ```
-src/
+src/              the app: the interface, the windows, the keyboard
   main.rs         the process: the shell, the first window, the socket
-  lib.rs          the modules, for the binary, the harness and the tests
+  lib.rs          the app's modules, and the core's re-exported
   app.rs          the Viewer: state, menus, keyboard, every window   ← the heart
   app/            the Viewer's halves that stand alone: menus.rs, actions.rs
                   (`perform`), listen.rs (the mailbox), toolbar.rs,
@@ -102,19 +115,36 @@ src/
                   modules, so they see the Viewer's private fields
   launch.rs       what the command line asks for
   keymap.rs       every action, its default chords, and event → chord
-  layout.rs       where each page sits, and what is on screen
   page.rs         the page widget: pdfium into a texture, or into ImageData
+  gpu.rs          the shader that recolours, selects and draws links:
+                  core/src/recolor.wgsl for a page, regions.wgsl for its runs
+  styles.rs       all of the CSS, as one string
+  icons.rs        the hand-drawn icon set
+  organiser.rs    the page organiser: the draft, its grid, and its view
+  sidebar.rs      contents, marks, thumbnails, search results
+  prefs.rs        the Settings window and the theme editor
+  shell.rs        the window, the menus and the cascade
+  windows.rs      what a second window is, and what closing one means (the
+                  deciding half); session.rs is the acting half
+  single.rs       one process per user, over a Unix socket
+  openfiles.rs dock.rs tabs.rs print.rs
+                  the macOS/AppKit corners — see "Platform corners"
+  steady.rs       the renderer, with a failed frame's scene cleared, which
+                  upstream does not do
+  nav.rs          which links may open, and how (upstream keeps its own
+                  provider private)
+  harness.rs      the reader driven with no window and no screen
+build.rs          the app's icon in the Windows executable
+core/src/         moonowl-core: documents, settings and themes
+  layout.rs       where each page sits, and what is on screen
   render.rs       the renderer trait pdfium sits behind
   pdfium.rs       the one pdfium instance, behind the one lock it needs
-  gpu.rs          the shader that recolours, selects and draws links:
-                  recolor.wgsl for a page, regions.wgsl for its runs
-  recolor.rs      the same recolouring on the CPU — the reference, and the
-                  half the screenshot tests read
+  recolor.rs      the recolouring on the CPU — the reference, and the
+                  half the screenshot tests read; it puts its constants in
+                  front of recolor.wgsl and regions.wgsl
   palette.rs      a theme's colours resolved, and the chrome shades derived
   crop.rs         trimmed margins, measured off a sample
   select.rs       selecting words on a page
-  styles.rs       all of the CSS, as one string
-  icons.rs        the hand-drawn icon set
   store.rs        the library: where you were, what was open, what you marked
   markup.rs       highlights written into the document, and taken back out
   objects.rs      the file's own objects through lopdf, after pdfium has saved:
@@ -123,7 +153,6 @@ src/
   labels.rs       page labels kept with their pages, and numbered by the reader
   arrange.rs      page edits: one `Edit::Arrange` for the document, and
                   `assemble` for new files
-  organiser.rs    the page organiser: the draft, its grid, and its view
   search.rs       the full-document index, the fold, and match stepping
   refs.rs         "[12]" and "Figure 3" with no link, and the line each
                   leads to (⌘-click; `Viewer::follow_reference`)
@@ -137,38 +166,28 @@ src/
   synctex.rs      LaTeX's SyncTeX file, read both ways, the editor started,
                   and `--synctex-forward` across the socket
   export.rs       a page saved as a picture, and the document's text
-  sidebar.rs      contents, marks, thumbnails, search results
   sign.rs         a drawn signature as the specification's own /Ink annotation
-  prefs.rs        the Settings window and the theme editor
-  shell.rs        the window, the menus and the cascade
-  windows.rs      what a second window is, and what closing one means (the
-                  deciding half); session.rs is the acting half
-  single.rs       one process per user, over a Unix socket
-  openfiles.rs dock.rs tabs.rs print.rs
-                  the macOS/AppKit corners — see "Platform corners"
-  steady.rs       the renderer, with a failed frame's scene cleared, which
-                  upstream does not do
-  nav.rs          which links may open, and how (upstream keeps its own
-                  provider private)
   config.rs       the config directory and `atomic_write`
   stats.rs        counters for what a session costs
-  harness.rs      the reader driven with no window and no screen
   fixture.rs      every test PDF, written in Rust
   emit.rs         news, and the mailbox each window reads it out of
   shelf.rs        a folder of named TOML files with a shipped set: the rules
                   themes and highlight palettes share, as one trait
   palettes.rs     highlight palettes, kept on the shelf
   theme.rs settings.rs keys.rs library.rs watch.rs
+cli/              the `moonowl` command: the core's page edits,
+                  comparisons, text recognition and SyncTeX
+core/build.rs     the shipped theme and palette tables, generated from
+                  themes/ and palettes/ and checked
 themes/*.toml     the packaged themes, embedded with include_str!
 palettes/*.toml   the packaged highlight palettes, likewise
 keys.toml         the commented template a new install gets, include_str!
 icons/            generated from the two SVGs by scripts/icons.sh; never edited
-build.rs          the shipped theme and palette tables, generated from
-                  themes/ and palettes/ and checked
 tests/            `cargo test`; one test file per thing the reader does
 examples/         `fixture.rs` from the command line — packaging's smoke document
-plans/            the tour (ARCHITECTURE.md), the assessments, reviews, todo,
-                  and the roadmap of features not yet built
+plans/            the tour (ARCHITECTURE.md), the overview for readers
+                  (ABOUT.md), the assessments, reviews, todo, and the
+                  roadmap of features not yet built
   dormant/        what is finished: the port's PROGRESS.md and Phase 0
                   spikes, the audit
 ```
@@ -233,7 +252,7 @@ closing — a picker reports every move of a drag, and a save can move the file.
 Opened over a highlight, a colour changed is that highlight's, and the
 palette keeps it only on Save.
 
-**The shipped set is the directory.** `build.rs` globs `themes/` and
+**The shipped set is the directory.** `core/build.rs` globs `themes/` and
 `palettes/` and *checks* them: a file that does not parse or names an
 unreadable colour is a build failure. The menu's order is each folder's
 `order` file, one id per line; a file it does not list, or an id with no file,
@@ -436,6 +455,13 @@ square is a review comment, not one of the reader's marks.
   from its old page, and writes the lot in one go. Offered as a button, never
   automatic: this app does not write to somebody's file without being asked.
   What is not found stays in the journal and is counted out loud.
+- **A clean copy** ("Clean copy" under Export, `markup::copy_without`) is
+  a copy for sharing without the reader's marks and other programs' sticky
+  notes and text boxes, with their popups and replies. Links, form fields,
+  drawn and typed signatures and every other annotation stay. It is
+  written through the same path as a mark, into a new file, so a signed
+  document's copy is appended to its signed bytes. `Leaving` chooses
+  highlights, notes or both; the menu offers both.
 
 ## Forms (`forms.rs`, `app/forms.rs`)
 
@@ -466,8 +492,12 @@ it has no text, or if pictures cover a tenth of it or more, and only the
 words where the page has no text of its own are kept (`ocr::recognise`):
 a scan with a stamped line, one recognised only in part, or a table pasted
 in as a picture. The words are found on a
-thread first, a page at a time through `grey_aside`, and the copy is
-then written on another, from the file only if it has not changed on disk
+thread first: the pages are drawn there one at a time through
+`grey_aside`, which holds pdfium's lock only while it draws, and read by
+the engine on up to four threads at once (`ocr::engines`), each Tesseract
+limited to one thread of its own. On 40 scanned pages that took Tesseract
+from 13 seconds to 4, and Vision, which shares the Neural Engine, from 7
+to 5.4. The copy is then written on another thread, from the file only if it has not changed on disk
 since. The engine is Vision on macOS (through `objc2`, with no
 crate of its own) and the `tesseract` command elsewhere; a box is the
 word's width and its line's height on both. A signed document is refused,
@@ -552,8 +582,8 @@ since the text changes its pages.
   A half is the size most of the pages are.
 - New files are written with `atomic_write`, never through `write_step`.
   File dialogs go through the `Choose` door.
-- **Split at each chapter** (the organiser's Split menu, `Viewer::chapters`,
-  `arrange::ends_there`, `Organiser::split_at`) starts a new file at each
+- **Split at each chapter** (the organiser's Split menu, `arrange::chapters`,
+  `arrange::cuts`, `Organiser::split_at`) starts a new file at each
   chapter, and the reader sees the cuts before anything is written.
   - The chapters are the headings at the top level of the contents. Where
     the top level has only one heading, usually the document's title, the
@@ -802,7 +832,8 @@ no GPU, no window, three platforms.
 ```
 cargo run                          # the app
 cargo run -- FILE                  # …opened on a document
-cargo test                         # the whole interface, headlessly
+cargo test                         # the whole interface, headlessly, and the core
+cargo test -p moonowl-core         # the core alone, in seconds
 cargo clippy --all-targets -- -D warnings
 cargo about generate --locked about.hbs -o licenses/rust-crates.txt
 cargo packager --release           # the installers, into target/release

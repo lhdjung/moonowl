@@ -776,3 +776,33 @@ fn a_flattened_copy_counts_the_links_it_leaves_out() {
     let flat = moonowl::export::flattened(&*document, &flat_to()).expect("a flattened copy");
     assert_eq!(flat.left_out, 1);
 }
+
+/// **A clean copy leaves out the highlights**, for sharing, and the
+/// document keeps them.
+#[test]
+fn a_clean_copy_leaves_the_highlights_out() {
+    let (dir, path) = draft_in("clean");
+    highlight(&path);
+    let to = dir.join("paper-clean.pdf").to_string_lossy().into_owned();
+    let mut reader = Reader::open_with(
+        &path,
+        Options {
+            chooses: vec![vec![to.clone()]],
+            ..Options::default()
+        },
+    );
+    reader.click(".chip.title");
+    reader.click("[data-item=save-clean]");
+    reader.settle();
+    let (asked, suggested) = reader.dialogs().pop().expect("a save dialog");
+    assert_eq!(asked, Choosing::SaveClean);
+    assert_eq!(suggested.as_deref(), Some(to.as_str()));
+    assert_eq!(
+        reader.state().notice,
+        "Saved a copy without 1 annotation as paper-clean.pdf."
+    );
+    assert_eq!(render::open(&path).expect("opens").markup().len(), 1);
+    let copy = render::open(&to).expect("the copy opens");
+    assert_eq!(copy.pages(), 3);
+    assert!(copy.markup().is_empty());
+}

@@ -1,7 +1,7 @@
 //! The Viewer and the page organiser: opening it, its keys, the drag, the
 //! file dialogs, and saving. [`crate::organiser`] holds the draft.
 
-use super::pages::{file_safe, same_file, NO_CHAPTERS};
+use super::pages::{same_file, NO_CHAPTERS};
 use super::*;
 use crate::arrange::{Edit, Layout};
 use crate::layout::Size;
@@ -663,18 +663,7 @@ impl Viewer {
         organiser.reading = true;
         let document = self.document.clone();
         let taken = self.on_thread(
-            move || {
-                let mut shared = false;
-                (chapters.into_iter())
-                    .map(|chapter| {
-                        let starts = (chapter.title, chapter.pages[0], shared);
-                        shared = chapter.next.is_some_and(|(page, spot)| {
-                            crate::arrange::ends_there(&*document, page, spot)
-                        });
-                        starts
-                    })
-                    .collect::<Vec<_>>()
-            },
+            move || crate::arrange::cuts(&*document, chapters),
             |viewer, chapters| {
                 // An organiser closed meanwhile, or opened again since, is
                 // not the one that asked.
@@ -1034,7 +1023,7 @@ impl Viewer {
             .map(|(at, (part, name))| {
                 let file = match named {
                     true => {
-                        let mut title = file_safe(name);
+                        let mut title = crate::arrange::file_safe(name);
                         if title.is_empty() {
                             title = "Chapter".into();
                         }

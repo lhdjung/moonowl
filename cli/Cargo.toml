@@ -1,0 +1,19 @@
+[package]
+name = "moonowl-cli"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Moonowl's page edits, comparisons, text recognition and SyncTeX, from the command line"
+
+# The command is `moonowl`, but it is built as `moonowl-cli`: it shares the
+# target folder with the app's `Moonowl`, and macOS does not tell the two
+# names apart. `scripts/install-cli.sh` installs it as `moonowl`.
+
+[dependencies]
+# The documents, settings and themes of the reader, with no interface.
+moonowl-core = { path = "../core" }
+
+[dev-dependencies]
+# The reader's test documents, for the tests.
+moonowl-core = { path = "../core", features = ["harness"] }

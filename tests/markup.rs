@@ -3291,3 +3291,91 @@ fn closing_writes_the_comment_being_typed_first() {
     reader.settle();
     assert_eq!(reader.asks(), [Ask::Close]);
 }
+
+/// The subtypes of the annotations on the first page, as the file has them.
+fn subtypes(path: &str) -> Vec<String> {
+    let document = lopdf::Document::load(path).expect("lopdf reads it");
+    let (_, page) = document.get_pages().into_iter().next().expect("a page");
+    let page = document.get_dictionary(page).expect("the page");
+    let Ok(annots) = page.get(b"Annots") else {
+        return Vec::new();
+    };
+    let annots = document.dereference(annots).expect("the list").1;
+    (annots.as_array().expect("an array").iter())
+        .map(|annot| {
+            let annot = document.dereference(annot).expect("an annotation").1;
+            let subtype = annot.as_dict().unwrap().get(b"Subtype").unwrap();
+            String::from_utf8_lossy(subtype.as_name().unwrap()).into_owned()
+        })
+        .collect()
+}
+
+/// **A copy without annotations leaves out what it is asked to**, with
+/// each one's popup, and keeps the link and a square another program drew.
+/// The document itself is not changed.
+#[test]
+fn a_copy_leaves_out_highlights_and_notes() {
+    let dir = std::env::temp_dir().join(format!("moonowl-without-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let notes = moonowl::fixture::notes_pdf();
+    let before = subtypes(&notes);
+    assert_eq!(before, ["Text", "Highlight", "Popup", "Square", "Link"]);
+    let at = |name: &str| dir.join(name).to_string_lossy().into_owned();
+
+    let only_notes = markup::Leaving {
+        highlights: false,
+        notes: true,
+    };
+    assert_eq!(
+        markup::copy_without(&notes, &at("notes.pdf"), only_notes),
+        Ok(1)
+    );
+    assert_eq!(
+        subtypes(&at("notes.pdf")),
+        ["Highlight", "Popup", "Square", "Link"]
+    );
+
+    assert_eq!(
+        markup::copy_without(&notes, &at("all.pdf"), markup::Leaving::ALL),
+        Ok(2)
+    );
+    assert_eq!(subtypes(&at("all.pdf")), ["Square", "Link"]);
+    assert_eq!(subtypes(&notes), before, "the document is as it was");
+
+    // Nothing is written over, and nothing is written when there is nothing
+    // to leave out.
+    assert!(markup::copy_without(&notes, &at("all.pdf"), markup::Leaving::ALL).is_err());
+    let plain = at("plain.pdf");
+    moonowl::fixture::draft(std::path::Path::new(&plain), 2);
+    assert_eq!(
+        markup::copy_without(&plain, &at("plain-copy.pdf"), markup::Leaving::ALL),
+        Ok(0)
+    );
+    assert!(!dir.join("plain-copy.pdf").exists());
+}
+
+/// **A signed document's copy keeps its signed bytes**, with the removal
+/// appended to them.
+#[test]
+fn a_copy_of_a_signed_document_is_appended_to_it() {
+    let dir = std::env::temp_dir().join(format!("moonowl-without-{}-signed", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a directory to write in");
+    let path = dir.join("signed.pdf");
+    std::fs::copy(moonowl::fixture::signed_pdf(), &path).expect("a copy of the fixture");
+    let path = path.to_string_lossy().into_owned();
+    let signed = std::fs::read(&path).expect("read");
+    let document = render::open(&path).expect("opens");
+    let (quads, _) = first_line(&document, 1);
+    drop(document);
+    markup::add(&path, &[(1, quads)], "#ffd60a", "Moonowl").expect("the mark is appended");
+
+    let copy = dir.join("copy.pdf").to_string_lossy().into_owned();
+    assert_eq!(
+        markup::copy_without(&path, &copy, markup::Leaving::ALL),
+        Ok(1)
+    );
+    assert!(std::fs::read(&copy).expect("read").starts_with(&signed));
+    assert!(render::open(&copy).expect("opens").markup().is_empty());
+}

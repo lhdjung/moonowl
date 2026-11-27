@@ -201,7 +201,8 @@ but nobody has asked for them; `roadmap.md` lists them.
 
 - **"Save as…"** writes new files. With one section it asks for a file name
   (`paper-arranged.pdf`, or `paper-combined.pdf` when pages come from
-  several files) and says so in a notice with an Open button. With several
+  several files, and `paper-two-to-a-sheet.pdf` or `paper-booklet.pdf`
+  with a layout) and says so in a notice with an Open button. With several
   sections it asks for a folder and writes one file per section into it,
   writing over nothing there. When any section has a name, from a chapter
   or typed in its heading, every file is numbered and named after its
@@ -215,9 +216,11 @@ but nobody has asked for them; `roadmap.md` lists them.
   organiser was opened on a document, there is one section, no page of
   the document is in it twice, and the pages are one to a sheet. Writing into the document follows the rules
   every write of the reader's own follows: a read-only, encrypted,
-  certified or very large document refuses, a signed one asks once before
-  its signature is broken, and removing more than `arrange::ASK_BEYOND`
-  pages asks first. The organiser closes once the write lands.
+  certified or very large document refuses, a signed one asks once first
+  (the change is appended after the signed bytes, but most programs will
+  then say the pages were changed after signing), and removing more than
+  `arrange::ASK_BEYOND` (five) pages asks first. The organiser closes once
+  the write lands.
 - **"Cancel"** with changes asks "Close without saving?", with "Keep
   arranging" as the default.
 - **"Save as…" has no size limit**, where "Save" refuses a document
@@ -261,11 +264,14 @@ document also says how to take it back:
 
 Refusals reuse the markup sentences: an encrypted or very large document
 says it cannot be changed, and so does a certified one, at once, since no
-certification allows a page edit. A read-only document refuses Save, and a
-signed one asks once before its signature is broken. A highlight on a
-signed document asks nothing, because it is appended after the signed
-bytes; a page edit cannot be. "Save as…" works for a read-only or signed
-document too, because it does not write to it.
+certification allows a page edit. A read-only document refuses Save. A
+signed one asks once: the edit is appended after the signed bytes, as a
+highlight is, so the signed version stays in the file, but most programs
+will say that its pages were changed after it was signed. A highlight
+asks nothing, because other programs expect annotations to be added to a
+signed document. Numbering pages asks nothing either, since it moves no
+page. "Save as…" works for a read-only or signed document too, because it
+does not write to it.
 
 ## The reading view
 

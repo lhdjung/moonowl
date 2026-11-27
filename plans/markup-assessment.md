@@ -18,10 +18,13 @@ A standard markup annotation on a page:
 - `/QuadPoints` — eight numbers per marked run, in PDF user space: the
   selection's runs (`PageText::quads`) flipped by `markup::corners`, in the
   corner order the specification wants.
-- `/C` — the colour, three numbers, and `/CA` for opacity.
+- `/C` — the colour, three numbers, and `/CA` for opacity. Moonowl writes
+  `/C` and not `/CA`, since neither pdfium nor pdfium-render can set it.
 - `/AP` — an appearance stream. **Not optional in practice**: many viewers draw
   only the appearance stream and ignore `/C`, so an annotation without one is
-  invisible in half the world. pdfium writes one on save.
+  invisible in half the world. pdfium makes no appearance for an annotation
+  it creates until it draws the page, so `markup::appear` draws the page
+  once at one pixel before the save, and the appearance goes into the file.
 - `/T`, `/Contents`, `/CreationDate` — who, a note, when. `/Contents` is where
   a comment on a highlight would go.
 
@@ -58,10 +61,13 @@ second thing that owns the pointer inside a page.
 **pdfium (this app).** `FPDFPage_RemoveAnnot` deletes an annotation already in
 the file, in one call — `remove` in `src/markup.rs`. What it charges is that
 `save_to_bytes` is `FPDF_SaveAsCopy` with `flags = 0` and `pdfium-render` does
-not expose the flags, so the save is a full rewrite rather than an incremental
-update: nothing for an ordinary paper, the end of the signature for a signed
-one. Nothing is left beside the document: undo puts back a copy kept in the
-config directory (`markup::Before`, taken by `Viewer::write_step`).
+not expose the flags, so pdfium's save is a full rewrite rather than an
+incremental update. For an ordinary paper that costs nothing. For a signed
+document, or one with Adobe's usage rights, `objects::incremental` compares
+pdfium's save with the file object by object and appends only what changed,
+through lopdf, so the signed bytes stay as they were (see AGENTS.md,
+"Markup"). Nothing is left beside the document: undo puts back a copy kept
+in the config directory (`markup::Before`, taken by `Viewer::write_step`).
 
 ## Drawing it, and the trap
 
@@ -92,9 +98,8 @@ on every recolouring theme.** Three ways out; the third is what is built:
 
 ## Colours
 
-Hex and nothing else, through `palette::read_colour`, never handed raw to CSS
-— the theme picker's swatch lied about a colour exactly once, and the fix was to
-route it through the same reader the renderer uses.
+Hex and nothing else, through `palette::read_colour`, never handed raw to CSS,
+so that a swatch shows the same colour the renderer draws.
 
 Each highlight carries its own colour, and can be given another
 (`markup::recolour`); the six of a highlight palette (`src/palettes.rs`, the one
@@ -109,9 +114,11 @@ is "the red one" on every theme, and it is red in Preview.
 
 Markup is the Highlights section of the Contents panel, under Bookmarks: the
 passage, its comment, and a jump. It is one list with the journal's entries,
-told apart by a word on the row ("beside the document") rather than by a
-section of their own, because to a reader they are one thing. Each row has a
-Remove.
+told apart by words on the row ("Only in Moonowl") rather than by a section
+of their own, because to a reader they are one thing. Each row has a Remove,
+which takes two presses. "Restore N highlights" at the top puts back marks
+a rebuilt document lost (`find_quote`), and "Remove all highlights" at the
+foot asks first.
 
 ## Step 7 — the edges, which are the feature
 
@@ -122,11 +129,18 @@ the first mark rather than at the open:
   because a mark holds the file in memory three times over and pdfium's one lock
   for the length of the save): the mark is kept in the journal with real quads
   and its quote, and the reader is told once where it is.
+- *Certified* with a `/DocMDP` `/P` below 3: the certification allows no
+  annotations, so the mark goes into the journal as above.
 - *Read-only* is asked of the disk rather than discovered from a failed rename —
   permission bits, a read-only volume, another owner and a sandbox all come back
-  the same way, and only opening the file for writing answers truly.
-- *Signed*: asked, not refused, once per document and before the first write.
-  It is their document, and a rewrite is exactly what a signature detects.
+  the same way, and only opening the file for writing answers truly. The
+  folder is asked too, because a write is a new file renamed over the old.
+- *Signed*: the mark is appended after the signed bytes as an incremental
+  update, without a question, since that is what other programs expect of a
+  signed document. A signed document whose change cannot be appended is not
+  written at all. A document with Adobe's usage rights (`/Perms /UR3`) is
+  appended to as well; where that fails it is written whole without the
+  rights (`markup::usage_rights`).
 - *Syncing*: one sentence about which copy wins. Not built here.
 - *A scan*: "There is no text on this page to highlight.", which is a different
   sentence from "select something first".
@@ -151,7 +165,8 @@ Comments on highlights, once on this list, are built: `/Contents`, written by
 ## Still to build: making a marked page look marked
 
 A *bookmark* — the pin, not the markup — exists in the Contents panel, and as a
-tick on "Bookmark page N" in the document menu, and nowhere else. It should be
+tick on "Bookmark this page" in the Document menu (and on "Bookmark page N"
+in a page's right-click menu), and nowhere else. It should be
 visible on the page and findable in the document. None of these changes what a
 mark *is*: a page number and a title in `library.toml`, and each option is a
 different projection of that list.
@@ -180,4 +195,4 @@ again is not what they asked for. Offer it as a setting if anyone asks.
    with colours" rather than as "marks".
 4. **The page pill**, which already appears when the page changes: a glyph on it
    when the current page is marked is nearly free.
-5. **The toolbar.** Built, as the document menu's tick.
+5. **The toolbar.** Built, as the Document menu's tick.

@@ -1,7 +1,8 @@
 # How Moonowl works on the inside
 
 A guided tour of the codebase for somebody who knows Rust but has not lived
-inside Dioxus Native. [`AGENTS.md`](../AGENTS.md) is the reference — dense,
+inside Dioxus Native. If you only want to know what the app is like to use,
+read [`ABOUT.md`](ABOUT.md) instead. [`AGENTS.md`](../AGENTS.md) is the reference — dense,
 full of the rules and the traps behind individual decisions. This document is the map you read
 first: what the pieces are, which one talks to which, and how a keystroke or a
 scroll turns into pixels.
@@ -25,12 +26,24 @@ clean split, though, and it is worth holding on to:
 
 | layer | what it is | files |
 | --- | --- | --- |
-| **Process** | the event loop, windows, single-instance, file watching | `main.rs`, `lib.rs`, `shell.rs`, `steady.rs`, `nav.rs`, `session.rs`, `windows.rs`, `single.rs`, `watch.rs`, `emit.rs` |
-| **Interface** | components, state, keyboard, CSS | `app.rs`, `sidebar.rs`, `prefs.rs`, `keymap.rs`, `styles.rs`, `icons.rs` |
-| **Document engine** | layout maths, rendering, recolouring, search, selection, markup | `layout.rs`, `render.rs`, `pdfium.rs`, `page.rs`, `gpu.rs`, `recolor.rs`, `search.rs`, `select.rs`, `markup.rs`, `sign.rs`, `crop.rs` |
+| **Process** | the event loop, windows, single-instance, file watching | `main.rs`, `lib.rs`, `launch.rs`, `shell.rs`, `steady.rs`, `nav.rs`, `session.rs`, `windows.rs`, `single.rs`, `watch.rs`, `emit.rs` |
+| **Interface** | components, state, keyboard, CSS | `app.rs` and `app/`, `sidebar.rs`, `prefs.rs`, `organiser.rs`, `keymap.rs`, `styles.rs`, `icons.rs` |
+| **Document engine** | layout maths, rendering, recolouring, search, selection, markup | `layout.rs`, `render.rs`, `pdfium.rs`, `page.rs`, `gpu.rs`, `recolor.rs`, `search.rs`, `select.rs`, `refs.rs`, `markup.rs`, `sign.rs`, `forms.rs`, `crop.rs` |
+| **Document writing and tools** | page edits, the file's own objects, comparing, recognising text, LaTeX | `arrange.rs`, `objects.rs`, `outline.rs`, `labels.rs`, `compare.rs`, `report.rs`, `ocr.rs`, `synctex.rs`, `export.rs` |
 | **Persistence** | settings, themes, highlight palettes, library, key bindings | `store.rs`, `settings.rs`, `shelf.rs`, `theme.rs`, `palettes.rs`, `palette.rs`, `library.rs`, `keys.rs`, `config.rs` |
 | **Platform glue** | the bits that are AppKit / Win32 | `dock.rs`, `openfiles.rs`, `tabs.rs`, `print.rs` |
 | **Test rig** | the whole UI driven headlessly | `harness.rs`, `fixture.rs`, `stats.rs`, `tests/` |
+
+The layers also decide which crate a file is in. The document engine,
+document writing, persistence, `emit.rs`, `fixture.rs` and `stats.rs` are
+`moonowl-core`, in `core/src/`, which has no interface crate in it. Everything
+else is the app, in `src/`. The app re-exports each core module under its own
+name, so `crate::layout` reads the same in both, and `cargo test -p
+moonowl-core` runs the core's unit tests in seconds without building the
+interface.
+A third crate, `cli/` (the `moonowl` command), puts the core's page edits,
+comparisons, text recognition and SyncTeX on the command line, with no
+interface at all.
 
 ---
 
@@ -106,17 +119,24 @@ Three consequences of this stack show up all over the code:
 
 `main()` is wiring and nothing else. In order:
 
+0. **The helper process.** If the first argument is `objects::APART`, this
+   process is not the app but its own helper: it serves one piece of lopdf
+   work over a pipe and exits (see §7, "Writing beyond highlights").
+   Otherwise `objects::work_apart` notes the executable's path, so the app
+   can start that helper later.
 1. **A panic hook** appends every panic, with a backtrace, to `crash.log` in
    the config directory — a release build on Windows has no console.
 2. **Settings are read once** for the window's remembered size.
-3. **Command line** — `--theme N`, and every other argument that is not a flag
-   is a document (made absolute at the door by `config::absolute`, so the
-   library, the watcher and the window registry all key on the same string).
-   The first goes in the launch window; the rest are handed over like any
-   document from outside.
+3. **Command line** — `launch::read` takes `--theme N`,
+   `--synctex-forward LINE:COLUMN:FILE.tex` from a LaTeX editor, and every
+   other argument that is not a flag as a document (made absolute at the door
+   by `config::absolute`, so the library, the watcher and the window registry
+   all key on the same string). The first goes in the launch window; the rest
+   are handed over like any document from outside.
 4. **Single instance** — `single::claim` tries to lock `instance.lock` in the
    config directory. Failure means another Moonowl holds it: the paths are
-   written down that one's Unix socket and this process exits 0. Success means
+   written down that one's Unix socket (with a SyncTeX request, if there is
+   one) and this process exits 0. Success means
    we bind the socket and become the one instance.
 5. **The named document is opened before any window exists**, so a headless CI
    runner can read `reader: 5 pages` off stdout — the packaging job's proof that
@@ -128,7 +148,7 @@ Three consequences of this stack show up all over the code:
    with the config directory, `--theme` and the window's size, and the
    `Session` is the factory for windows.
 7. **Closures are hung on the shell**: `on_launch`, `on_request`, `on_close`,
-   `on_swap`, `on_focus`, `on_resized`, `on_pinch`, `on_theme`, `on_drop`,
+   `on_closing`, `on_swap`, `on_focus`, `on_resized`, `on_pinch`, `on_theme`, `on_drop`,
    `on_quit`. The shell deliberately knows nothing about documents; these
    closures are where window events meet app meaning. Most of them do one
    thing: **post a piece of `News` into a window's mailbox**.
@@ -178,7 +198,7 @@ a borrow of that very window. So `Frame::ask(Ask::Close)` posts an
 `embedder_event`, and `Shell::proxy_wake_up` answers it on the next turn. The
 small private structs at the top of `shell.rs` (`Spawn`, `Wanted`, `CloseOne`,
 `Swapped`, `Show`, `SelectTab`, `StepTab`, `FullScreen`, `Minimize`,
-`UiScale`, `Print`, `Quit`) are that
+`UiScale`, `Print`, `Quit`, `QuitNow`) are that
 vocabulary. `Remote` is the `Send` half of the same door, which is how the
 socket thread and the Dock menu ask for windows from other threads.
 
@@ -268,8 +288,11 @@ was made `pub` to move them out; a method called from outside its module is
 | `actions.rs` | `perform`, one arm per `Action` |
 | `listen.rs` | `listen`, the mailbox task (§5) |
 | `toolbar.rs` | `Toolbar` and `FindCard` |
-| `dialogs.rs` | the Details, Sign and password windows |
-| `ink.rs`, `markup.rs`, `search.rs`, `disk.rs` | `impl Viewer` blocks: signing; highlights, comments, the highlight colours and undo; the find bar and its index; opening, writing, reloading and putting a document down |
+| `dialogs.rs` | the Details, Sign, comparison report and password windows |
+| `focus.rs` | the keys the shell answers before the document (Tab, Enter on a button, arrows in a menu), and where the focus goes after a click |
+| `ink.rs`, `markup.rs`, `forms.rs`, `search.rs`, `disk.rs` | `impl Viewer` blocks: signing; highlights, comments, the highlight colours and undo; form fields; the find bar and its index; opening, writing, reloading and putting a document down |
+| `organise.rs`, `pages.rs` | the page organiser's half of the `Viewer`, and writing a page edit into the document |
+| `compare.rs`, `synctex.rs`, `reading.rs` | comparing two versions; LaTeX's SyncTeX in both directions; the reading line |
 
 Line numbers move with every commit, so each part is placed by what sits
 around it.
@@ -306,7 +329,8 @@ Two design points worth understanding:
 `Reader` runs on every state change. Its body, in order:
 
 1. **Consume contexts** with fallbacks (`Screen`, `Appearance`, `Frame`,
-   `Printer`, `Clip`, `Pick`, `Away`, `Reveal`, `Pointer`). Each is a tiny
+   `Printer`, `Clip`, `Pick`, `Choose`, `Away`, `Reveal`, `Pointer`, `Tabs`,
+   `Launch`). Each is a tiny
    `Rc<dyn Fn>` wrapper made by the `door!` macro. The shell provides the real
    ones; the test harness provides recording fakes; with neither there is a
    sane default. **This is the app's dependency-injection seam**, and it is why
@@ -319,8 +343,8 @@ Two design points worth understanding:
    (`app/actions.rs`) — one `match` arm per `Action`, so a missing action is a
    compile error.
 4. **Spawn the mailbox task**, `listen` in `app/listen.rs` (§5).
-5. **Three `use_effect`s** that arm the notice, pill/scrollbar and zoom-settle
-   timers. Note the trap documented there: what an effect remembers between
+5. **Five `use_effect`s** that arm the timers for the notice, the offer to go
+   back after following a link, the pill and scrollbar, and the zoom settling, and tell the desk when the window is arranging pages. Note the trap documented there: what an effect remembers between
    runs must live in a `use_hook`, never in the closure — the closure is
    replaced on every render. Getting that wrong once cost 100% of a core at
    idle; `tests/settle.rs` guards it.
@@ -376,15 +400,16 @@ page's scale.
   although Option turns G into ©), and sequences like `g g`.
 - **`styles.rs`** — all CSS as one string. Colours come in as CSS variables that
   `Palette` derives from a theme's handful of colours.
-- **The toolbar gives way in steps** (GitHub issue 3). Its three groups hold
-  about 1100px of chips, and `.bar-left` shrinks to nothing while its chips do
-  not, so without the steps a narrower window runs them on under the page
-  controls. Four `@media` steps above `.chip` in `styles.rs`: at 1400px the
-  left group's chips lose their words, at 1200px every chip does (each label
-  is a `span.chip-label`) and keeps its symbol, at 720px the rotations and
-  Close go, at 600px Sidebar, Search and the document's name.
-  What is left needs 450px, and `session.rs` gives every window a minimum of
-  480. The find card is wider than a bar of symbols has room for to the right
+- **The toolbar loses its words before it loses a control** (GitHub issue 3).
+  Its three groups hold about 1100px of chips, and `.bar-left` shrinks to
+  nothing while its chips do not, so without these steps a narrower window
+  would run them on under the page controls. The `@media` steps above `.chip`
+  in `styles.rs`: at 1400px the left group's chips lose their words, at
+  1200px every chip does (each label is a `span.chip-label`) and keeps its
+  symbol, and at 720px the chips move closer together and the document's name
+  folds to its symbol. No control is ever dropped. Everything then fits in
+  590px, and `session.rs` (`SMALLEST`) does not let a window get narrower than
+  600, scaled up with the interface's size. The find card is wider than a bar of symbols has room for to the right
   of the Search chip, so under 1200px `Reader` hangs `FindCard` at the
   window's edge instead (`bar_tight`). `tests/chrome.rs` walks the widths.
 - **`icons.rs`** — inline SVG strings, stroked with a colour passed from Rust
@@ -398,11 +423,13 @@ page's scale.
 ### `render.rs` — the one door to the PDF library
 
 `trait PageSource` is everything the rest of the app may ask of a document:
-`pages`, `size_of`, `render`, `render_owned`, `text_of`/`try_text_of`,
-`links_of`, `notes_of`, `outline`, `place`, `spaces`/`learn_spaces`, `labels`,
-`title`, `details`, `markup`/`markup_on`, `signatures`, `seals`, `stamp`,
-`release`/`retake`/`released`, `encrypted`, `sealed`, `path`, `password`,
-`opened_in`. Everything but `pages`, `size_of`, `render` and `opened_in` has a
+`pages`, `size_of`, `render`, `render_owned`, `render_aside`/`grey_aside`,
+`text_of`/`try_text_of`/`text_aside`, `pictures_aside`, `links_of`,
+`notes_of`, `fields_of`, `outline`, `place`, `spaces`/`learn_spaces`,
+`labels`, `title`, `details`, `markup`/`markup_on`/`walk`, `attachments`,
+`signatures`, `seals`, `stamp`, `release`/`retake`/`released`, `encrypted`,
+`sealed`, `certified`, `path`, `password`, `opened_in`. The `_aside` methods
+are for work nobody is looking at yet, and wait for pdfium's lock to be free. Everything but `pages`, `size_of`, `render` and `opened_in` has a
 default (`render_owned` copies what `render` lends; the rest do nothing), so
 swapping pdfium for another renderer is a contained job.
 
@@ -423,7 +450,8 @@ pdfium has process-wide state and no thread safety, so there is **one global
 mutex** (`library()`), taken by every call — including `Drop`, which is the
 call site nobody sees. Lock order is always library → document. Work nobody
 is looking at yet (the markup walk after open) takes it through
-`library_when_free`, which yields to any page being drawn.
+`library_when_free`, which waits on a condition variable until no page is
+being drawn, rather than polling.
 
 At open it reads what decides the UI's shape, without loading a page: page
 sizes and labels by index (including a heuristic that reads *printed* page
@@ -527,7 +555,33 @@ Details that carry weight:
   undo puts back. Marks that cannot go into the file (read-only, encrypted)
   are kept in the library's journal "beside" the document.
 - **Sign** places a drawn signature as an `/Ink` annotation or typed text (a
-  date, a name) as a stamp, through the same `markup::edit` path.
+  date, a name) as a `/Stamp`, through the same `markup::edit` path.
+- **Forms** are filled through pdfium's form-fill environment, as a click or
+  typing would fill them, each change a `write_step` of its own with undo.
+
+### Writing beyond highlights: lopdf and the helper process
+
+pdfium reads and draws well, but writes little. For everything else the app
+uses **lopdf**, which can change any object in a PDF, and uses it only after
+pdfium has saved: page edits from the page organiser (`arrange.rs`), keeping
+the outline and page labels true when pages move (`outline.rs`,
+`labels.rs`), incremental updates that leave a signed document's signed bytes
+alone (`objects::incremental`), shrinking new files, and the document's
+details.
+
+lopdf runs in **a second copy of the app's own executable**, started with
+`objects::APART` and fed an `objects::Work` (plain data) and the document over
+a pipe. Memory a process has used stays with it once freed, and a large book
+through lopdf left the app 240MB larger, so the work happens somewhere that
+then exits. The same helper writes flattened copies and comparison reports
+with a pdfium of its own. `tests/apart.rs` drives the real binary.
+AGENTS.md, under "Page edits" and "What lopdf does", has the rules.
+
+The other tools follow the same pattern of a thread, then news: "Compare
+with…" (`compare.rs`, and `report.rs` to save the comparison as a PDF),
+"Recognise text…" (`ocr.rs`, Vision on macOS and Tesseract elsewhere), and
+SyncTeX (`synctex.rs`), which jumps between a LaTeX source and its PDF in both
+directions.
 
 ---
 
@@ -541,12 +595,12 @@ old file's permissions, ACL and extended attributes put on the new one first.
 | file | module | contents |
 | --- | --- | --- |
 | `settings.toml` | `settings.rs` | flat key/value; the defaults table is also the whitelist; `set_many` rewrites only named keys, under a lock |
-| `themes/*.toml` | `theme.rs`, `shelf.rs` | one file per theme. Built-ins are embedded (`build.rs` globs and *validates* `themes/` at compile time) and rewritten on every run; user themes are never touched, except that `save` renames a file the app itself named when its theme is renamed |
+| `themes/*.toml` | `theme.rs`, `shelf.rs` | one file per theme. Built-ins are embedded (`core/build.rs` globs and *validates* `themes/` at compile time) and rewritten on every run; user themes are never touched, except that `save` renames a file the app itself named when its theme is renamed |
 | `palettes/*.toml` | `palettes.rs`, `shelf.rs` | one file per highlight palette (a name and six colours), kept by the same rules as themes: `shelf.rs` is those rules, generic over `Kept` |
 | `library.toml` | `library.rs` | per-document entries (last place, title, marks, trimmed margins, markup journal) and the `open` restore list |
 | `keys.toml` | `keys.rs` | key overrides; not watched — there is a Reload button |
 | `signatures/*.toml` | `sign.rs` | one file per drawn signature |
-| `undo/` | `markup.rs` | the copies of a document taken before each write, for undo |
+| `undo/` | `markup.rs` | the copies of a document taken before each write, for undo, in the window's own config folder |
 | `instance.lock`, `instance.sock` | `single.rs` | the single-instance claim, and the socket a second launch hands its document over |
 | `crash.log` | `main.rs` | every panic, with its backtrace |
 
@@ -602,7 +656,9 @@ Reload of `keys.toml` as `Event::KeysReloaded`.
 | socket listener (unix) | second launches | `Remote::request` |
 | print (Windows) | dialog + GDI job | — |
 | file dialogs | Open, theme import and export (a modal dialog re-enters winit's handler) | `Post::send` |
-| document work | a highlight, a signature or a rebuild: rewrite (or not), then reopen; the markup read after open; the margins measured; links and notes of pages coming into view | `Post::send` |
+| document work | a highlight, a signature, a form field, a page edit or a rebuild: rewrite (or not), then reopen; the markup read after open; the margins measured; links and notes of pages coming into view | `Post::send` |
+| tools | a comparison, a report, text recognition, splitting at chapters | `Post::send` |
+| helper *process* | lopdf work, flattened copies and comparison reports, started per job (`objects::APART`) | a pipe |
 
 pdfium's global lock serialises the render thread and the document work
 against main-thread pdfium calls (a page's text). `stats::WRITING` counts the
@@ -649,8 +705,10 @@ delivers real pointer/key events through the real event pipeline, reads state
 *off the interface* (page from the pill, zoom from its chip) rather than out of
 `Viewer`, and can rasterise screenshots through `vello_cpu`. It lays out in one
 font on every platform (`tests/fonts/DejaVuSans.ttf`), so a width tuned on a
-Mac holds on Windows. PDFs are generated in Rust by `fixture.rs` — nothing is
-committed. There are 31 integration test files, one per concern, plus unit
+Mac holds on Windows. Seven small PDFs are committed in `tests/fixtures/` (a
+signed one, a locked one, one with labels…), and every other shape a test
+needs is written in Rust by `fixture.rs`, so `cargo test` needs nothing but
+cargo. There are 49 integration test files, one per concern, plus unit
 tests inside the pure modules (`layout`, `windows`, `emit`, `watch`, `library`,
 `settings`, `search`, `store`…).
 

@@ -78,11 +78,27 @@ pub fn recognise(document: &dyn PageSource, stop: &AtomicBool) -> Result<Found, 
     recognise_with(document, stop, words_in)
 }
 
+/// [`recognise`], one page at a time, for a process that is one of several
+/// recognising other documents at once, which use the cores already.
+pub fn recognise_alone(document: &dyn PageSource, stop: &AtomicBool) -> Result<Found, String> {
+    recognise_on(document, stop, 1, words_in)
+}
+
 /// [`recognise`], with the engine named, for the tests.
 pub fn recognise_with(
     document: &dyn PageSource,
     stop: &AtomicBool,
-    engine: impl Fn(&[u8], u32, u32, f64, &AtomicBool) -> Result<Vec<Word>, String>,
+    engine: impl Fn(&[u8], u32, u32, f64, &AtomicBool) -> Result<Vec<Word>, String> + Sync,
+) -> Result<Found, String> {
+    recognise_on(document, stop, engines(), engine)
+}
+
+/// [`recognise_with`], reading on `threads` threads.
+fn recognise_on(
+    document: &dyn PageSource,
+    stop: &AtomicBool,
+    threads: usize,
+    engine: impl Fn(&[u8], u32, u32, f64, &AtomicBool) -> Result<Vec<Word>, String> + Sync,
 ) -> Result<Found, String> {
     // Whether the reader stopped, or the app is ending. This is asked
     // before every part of a page and once more at the end, so that a stop
@@ -96,80 +112,197 @@ pub fn recognise_with(
         }
         Ok(())
     };
-    let mut found = Found::default();
-    let mut first_failure = None;
-    'pages: for index in 0..document.pages() {
-        halted()?;
-        let text =
-            (document.text_aside(index)).ok_or(crate::export::CLOSED_WHILE_READ.to_string())?;
-        let typed = text.chars.iter().any(|c| !c.is_whitespace());
-        let size = document.size_of(index);
-        let parts = match typed {
-            false => vec![Crop {
-                x: 0.0,
-                y: 0.0,
-                width: 1.0,
-                height: 1.0,
-            }],
-            true => {
-                let pictures = document.pictures_aside(index);
-                let covered: f64 = pictures.iter().map(|(_, area)| area).sum();
-                if covered < PICTURED * size.width * size.height {
+    // **Pages are drawn here, one at a time, and read by the engine on
+    // several threads at once.** Drawing holds pdfium's lock and is quick;
+    // reading is slow, and holds no lock. A part waits here until a thread
+    // takes it, so at most one picture more than there are threads exists
+    // at a time.
+    let mut read: Vec<Read> = Vec::new();
+    let mut pages: Vec<(usize, crate::render::PageText, crate::layout::Size)> = Vec::new();
+    let mut failures: std::collections::BTreeMap<usize, String> = Default::default();
+    let missing = AtomicBool::new(false);
+    let (give, take) = std::sync::mpsc::sync_channel::<Job>(0);
+    let take = std::sync::Mutex::new(take);
+    std::thread::scope(|scope| -> Result<(), String> {
+        let (answer, answers) = std::sync::mpsc::channel::<Read>();
+        for _ in 0..threads.max(1) {
+            let (take, answer, engine, halted, missing) =
+                (&take, answer.clone(), &engine, &halted, &missing);
+            scope.spawn(move || loop {
+                let job = take.lock().unwrap_or_else(|e| e.into_inner()).recv();
+                let Ok(job) = job else {
+                    break;
+                };
+                if halted().is_err() || missing.load(Ordering::Relaxed) {
                     continue;
                 }
-                parts_of(pictures.into_iter().map(|(rect, _)| rect).collect(), size)
-            }
-        };
-        let mut words = Vec::new();
-        for part in parts {
-            halted()?;
-            let (across, down) = (part.width * size.width, part.height * size.height);
-            let scale = (DPI / 72.0).min((MOST_PIXELS / (across * down)).sqrt());
-            let pixels = |points: f64| (points * scale).round().max(1.0) as u32;
-            let (width, height) = (pixels(across), pixels(down));
-            // A page that cannot be drawn is counted as one the engine
-            // failed on, unless the document was put down meanwhile.
-            let grey = match document.grey_aside(index, width, height, Some(part)) {
-                Ok(grey) => grey,
-                Err(_) if document.released() => {
-                    return Err(crate::export::CLOSED_WHILE_READ.into())
+                let words = engine(&job.grey, job.width, job.height, job.dpi, stop);
+                if words.as_ref().is_err_and(|said| engine_missing(said)) {
+                    missing.store(true, Ordering::Relaxed);
                 }
-                Err(_) => {
-                    found.failed += 1;
-                    first_failure.get_or_insert(format!("Page {} could not be drawn.", index + 1));
-                    continue 'pages;
-                }
-            };
-            let read = match engine(&grey, width, height, scale * 72.0, stop) {
-                Ok(read) => read,
-                // Without an engine, no page can be read.
-                Err(said) if engine_missing(&said) => return Err(said),
-                Err(said) => {
-                    found.failed += 1;
-                    first_failure.get_or_insert(said);
-                    continue 'pages;
-                }
-            };
-            words.extend(read.into_iter().map(|word| Word {
-                at: Rect {
-                    left: part.x + word.at.left * part.width,
-                    top: part.y + word.at.top * part.height,
-                    width: word.at.width * part.width,
-                    height: word.at.height * part.height,
-                },
-                ..word
-            }));
+                let _ = answer.send(Read {
+                    page: job.page,
+                    order: job.order,
+                    part: job.part,
+                    words,
+                });
+            });
         }
-        words.retain(|word| !over_text(word, &text, size));
-        found.pages.push((index, words));
+        drop(answer);
+        let drawn = (|| -> Result<(), String> {
+            'pages: for index in 0..document.pages() {
+                halted()?;
+                if missing.load(Ordering::Relaxed) {
+                    break;
+                }
+                let text = (document.text_aside(index))
+                    .ok_or(crate::export::CLOSED_WHILE_READ.to_string())?;
+                let typed = text.chars.iter().any(|c| !c.is_whitespace());
+                let size = document.size_of(index);
+                let parts = match typed {
+                    false => vec![Crop {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 1.0,
+                        height: 1.0,
+                    }],
+                    true => {
+                        let pictures = document.pictures_aside(index);
+                        let covered: f64 = pictures.iter().map(|(_, area)| area).sum();
+                        if covered < PICTURED * size.width * size.height {
+                            continue;
+                        }
+                        parts_of(pictures.into_iter().map(|(rect, _)| rect).collect(), size)
+                    }
+                };
+                pages.push((index, text, size));
+                for (order, part) in parts.into_iter().enumerate() {
+                    halted()?;
+                    let (across, down) = (part.width * size.width, part.height * size.height);
+                    let scale = (DPI / 72.0).min((MOST_PIXELS / (across * down)).sqrt());
+                    let pixels = |points: f64| (points * scale).round().max(1.0) as u32;
+                    let (width, height) = (pixels(across), pixels(down));
+                    // A page that cannot be drawn is counted as one the
+                    // engine failed on, unless the document was put down
+                    // meanwhile.
+                    let grey = match document.grey_aside(index, width, height, Some(part)) {
+                        Ok(grey) => grey,
+                        Err(_) if document.released() => {
+                            return Err(crate::export::CLOSED_WHILE_READ.into())
+                        }
+                        Err(_) => {
+                            failures
+                                .insert(index, format!("Page {} could not be drawn.", index + 1));
+                            continue 'pages;
+                        }
+                    };
+                    let job = Job {
+                        page: index,
+                        order,
+                        part,
+                        grey,
+                        width,
+                        height,
+                        dpi: scale * 72.0,
+                    };
+                    if give.send(job).is_err() {
+                        break 'pages;
+                    }
+                }
+            }
+            Ok(())
+        })();
+        // The threads end once there is nothing more to take.
+        drop(give);
+        read = answers.iter().collect();
+        drawn
+    })?;
+    // Without an engine, no page can be read.
+    if let Some(said) = (read.iter()).find_map(|read| read.words.as_ref().err()) {
+        if engine_missing(said) {
+            return Err(said.clone());
+        }
     }
     halted()?;
+    read.sort_by_key(|read| (read.page, read.order));
+    let mut words: std::collections::BTreeMap<usize, Vec<Word>> = Default::default();
+    for Read {
+        page,
+        part,
+        words: answer,
+        ..
+    } in read
+    {
+        match answer {
+            Ok(found) => words
+                .entry(page)
+                .or_default()
+                .extend(found.into_iter().map(|word| Word {
+                    at: Rect {
+                        left: part.x + word.at.left * part.width,
+                        top: part.y + word.at.top * part.height,
+                        width: word.at.width * part.width,
+                        height: word.at.height * part.height,
+                    },
+                    ..word
+                })),
+            Err(said) => {
+                failures.entry(page).or_insert(said);
+            }
+        }
+    }
+    let mut found = Found {
+        failed: failures.len(),
+        ..Found::default()
+    };
+    for (index, text, size) in pages {
+        if failures.contains_key(&index) {
+            continue;
+        }
+        let mut on_page = words.remove(&index).unwrap_or_default();
+        on_page.retain(|word| !over_text(word, &text, size));
+        found.pages.push((index, on_page));
+    }
     // Every page that was tried failed, so the reason is worth more than a
-    // count.
-    match first_failure {
+    // count: the first page's.
+    match failures.into_values().next() {
         Some(said) if found.pages.is_empty() => Err(said),
         _ => Ok(found),
     }
+}
+
+/// One part of a page, drawn, for a thread to read.
+struct Job {
+    page: usize,
+    /// Which part of its page it is, so that a page's words stay in the
+    /// order of its parts.
+    order: usize,
+    part: Crop,
+    grey: Vec<u8>,
+    width: u32,
+    height: u32,
+    dpi: f64,
+}
+
+/// What a thread read in one part of a page.
+struct Read {
+    page: usize,
+    order: usize,
+    part: Crop,
+    words: Result<Vec<Word>, String>,
+}
+
+/// How many parts of pages are read at once: one fewer than the machine has
+/// cores, so that the window keeps one, and at most four.
+///
+/// ponytail: four, because each part waiting or being read is a picture of
+/// up to `MOST_PIXELS` bytes, and macOS keeps a freed block that size. If a
+/// machine with many cores reads scans slowly, raise it and measure the
+/// memory.
+fn engines() -> usize {
+    std::thread::available_parallelism()
+        .map_or(1, |cores| cores.get().saturating_sub(1))
+        .clamp(1, 4)
 }
 
 /// Whether the engine's answer means it cannot be used at all.
@@ -382,6 +515,11 @@ pub fn tesseract_at(
     use std::process::{Command, Stdio};
     let png = png(grey, width, height, dpi)?;
     let mut command = Command::new(program);
+    // Several pages are read at once, each by a Tesseract of its own, so
+    // each uses one thread rather than its own several.
+    if engines() > 1 {
+        command.env("OMP_THREAD_LIMIT", "1");
+    }
     command
         .args(["stdin", "stdout", "tsv"])
         .stdin(Stdio::piped())

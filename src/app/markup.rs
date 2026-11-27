@@ -1270,17 +1270,14 @@ impl Viewer {
     /// **A mark in the document comes out of the document**:
     /// `FPDFPage_RemoveAnnot`, a reopen, and it is gone from the file for
     /// every reader of it. See [`crate::markup`].
-    ///
-    /// Answers whether it stopped to ask first — a signed document — so that
-    /// the popover the question came from can stay for the answer.
-    pub fn remove_markup(&mut self, key: &MarkKey) -> bool {
+    pub fn remove_markup(&mut self, key: &MarkKey) {
         match key {
             MarkKey::Beside(id) => {
                 // Waits for a write as a mark in the file does: a refused
                 // write puts back the journal as it was when it began, and a
                 // change made in between would come undone with it.
                 if self.busy_beside() {
-                    return false;
+                    return;
                 }
                 let journal = self.store.journal().to_vec();
                 self.did(Step {
@@ -1294,7 +1291,7 @@ impl Viewer {
             }
             MarkKey::InFile(page, index) => {
                 if self.busy() {
-                    return false;
+                    return;
                 }
                 // Asked here as it is asked before a mark goes in: an
                 // encrypted or read-only document cannot have one taken out
@@ -1305,7 +1302,7 @@ impl Viewer {
                         "{}, so the highlight cannot be taken out of it.",
                         self.standing.refused
                     );
-                    return false;
+                    return;
                 }
                 // **The journal has to be told first**, or the reload cannot
                 // tell "the reader took this off" from "a rebuild lost it" —
@@ -1358,20 +1355,16 @@ impl Viewer {
                 );
             }
         }
-        false
     }
 
     /// Give one mark another colour, wherever it is being kept. The popover
     /// goes: the colour on the page is the answer.
-    ///
-    /// Answers whether it stopped to ask first, as [`Viewer::remove_markup`]
-    /// does and for the popover's sake.
-    pub fn recolour_markup(&mut self, key: &MarkKey, colour: &str) -> bool {
+    pub fn recolour_markup(&mut self, key: &MarkKey, colour: &str) {
         match key {
             MarkKey::Beside(id) => {
                 // See the same wait in [`Viewer::remove_markup`].
                 if self.busy_beside() {
-                    return false;
+                    return;
                 }
                 let journal = self.store.journal().to_vec();
                 let changed = journal
@@ -1394,7 +1387,7 @@ impl Viewer {
             }
             MarkKey::InFile(page, index) => {
                 if self.busy() {
-                    return false;
+                    return;
                 }
                 let Some(mark) = self
                     .markup
@@ -1402,18 +1395,18 @@ impl Viewer {
                     .find(|mark| mark.page == *page && mark.index == *index)
                     .cloned()
                 else {
-                    return false;
+                    return;
                 };
                 if mark.color.eq_ignore_ascii_case(colour) {
                     self.mark_open = None;
-                    return false;
+                    return;
                 }
                 if !self.standing.into_file {
                     self.notice = format!(
                         "{}, so the highlight cannot be changed in it.",
                         self.standing.refused
                     );
-                    return false;
+                    return;
                 }
                 // The journal needs nothing: the old mark's entry is last
                 // time's reading of a file that still carries marks, which
@@ -1437,7 +1430,6 @@ impl Viewer {
             }
         }
         self.mark_open = None;
-        false
     }
 
     /// Make one mark a highlight, an underline or a strike-out, wherever it

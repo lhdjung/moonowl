@@ -7,6 +7,7 @@ use moonowl::harness::Reader;
 use moonowl::layout::View;
 use moonowl::ocr;
 use moonowl::render::{self, PageSource};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const PLAIN: View = View {
     rotation: 0,
@@ -124,7 +125,6 @@ fn tesseract_finds_the_same_words() {
 #[cfg(unix)]
 #[test]
 fn a_tesseract_that_does_not_answer_is_given_up_on() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = std::env::temp_dir().join(format!("moonowl-tesseract-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     // Grey noise, whose picture is larger than a pipe holds, so that one
@@ -144,8 +144,7 @@ fn a_tesseract_that_does_not_answer_is_given_up_on() {
     ] {
         let program = dir.join(name).join("tesseract");
         std::fs::create_dir_all(program.parent().unwrap()).unwrap();
-        std::fs::write(&program, script).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_script(&program, script);
         let began = std::time::Instant::now();
         let answer = ocr::tesseract_at(
             program.to_str().unwrap(),
@@ -536,22 +535,23 @@ fn a_figure_inside_a_form_is_pictured_where_it_is() {
 }
 
 /// A page the engine fails on is counted and left out, and the other pages
-/// are still read.
+/// are still read, in order. Pages are read on several threads, so which
+/// page the engine is asked about first is not known.
 #[test]
 fn a_page_the_engine_fails_on_is_counted_and_the_rest_are_read() {
     let document = render::open(&fixture::scanned_pdf()).unwrap();
-    let calls = std::cell::Cell::new(0);
-    let found = ocr::recognise_with(&*document, &Default::default(), |_, _, _, _, _| {
-        calls.set(calls.get() + 1);
-        match calls.get() {
-            1 => Err("Tesseract did not answer in time.".into()),
-            _ => Ok(Vec::new()),
-        }
+    let calls = AtomicUsize::new(0);
+    let found = ocr::recognise_with(&*document, &Default::default(), |_, _, _, _, _| match calls
+        .fetch_add(1, Ordering::Relaxed)
+    {
+        0 => Err("Tesseract did not answer in time.".into()),
+        _ => Ok(Vec::new()),
     })
     .expect("the other pages are kept");
     assert_eq!(found.failed, 1);
     let pages: Vec<usize> = found.pages.iter().map(|(page, _)| *page).collect();
-    assert_eq!(pages, [2, 3, 4, 5]);
+    assert_eq!(pages.len(), 4);
+    assert!(pages.is_sorted(), "{pages:?}");
     // When every page fails, the reason is said instead of a count.
     let found = ocr::recognise_with(&*document, &Default::default(), |_, _, _, _, _| {
         Err("Tesseract did not answer in time.".into())
@@ -564,19 +564,18 @@ fn a_page_the_engine_fails_on_is_counted_and_the_rest_are_read() {
 #[test]
 fn a_stop_during_the_last_page_saves_no_copy() {
     let document = render::open(&fixture::scanned_pdf()).unwrap();
-    let calls = std::cell::Cell::new(0);
+    let calls = AtomicUsize::new(0);
     ocr::recognise_with(&*document, &Default::default(), |_, _, _, _, _| {
-        calls.set(calls.get() + 1);
+        calls.fetch_add(1, Ordering::Relaxed);
         Ok(Vec::new())
     })
     .unwrap();
-    let last = calls.get();
+    let last = calls.load(Ordering::Relaxed);
     for stopped in [true, false] {
         let stop = std::sync::atomic::AtomicBool::new(false);
-        let seen = std::cell::Cell::new(0);
+        let seen = AtomicUsize::new(0);
         let found = ocr::recognise_with(&*document, &stop, |_, _, _, _, stop| {
-            seen.set(seen.get() + 1);
-            if seen.get() < last {
+            if seen.fetch_add(1, Ordering::Relaxed) + 1 < last {
                 return Ok(Vec::new());
             }
             stop.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -594,7 +593,6 @@ fn a_stop_during_the_last_page_saves_no_copy() {
 #[cfg(unix)]
 #[test]
 fn a_tesseract_given_up_on_ends_what_it_started() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = std::env::temp_dir().join(format!("moonowl-tesseract-group-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let started = dir.join("started");
@@ -603,11 +601,12 @@ fn a_tesseract_given_up_on_ends_what_it_started() {
         "#!/bin/sh\nsleep 30 &\necho $! > '{}'\nwait\n",
         started.display()
     );
-    std::fs::write(&program, script).unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    write_script(&program, &script);
+    // The limit has to leave the script time to start and write down its
+    // child, even on a machine busy with other tests.
     let answer = ocr::tesseract_at(
         program.to_str().unwrap(),
-        std::time::Duration::from_millis(500),
+        std::time::Duration::from_secs(3),
         &[0; 64],
         8,
         8,
@@ -629,4 +628,44 @@ fn a_tesseract_given_up_on_ends_what_it_started() {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     assert!(!alive(), "the program it started is still running");
+}
+
+/// **Pages are read at once** where the machine has the cores for it: the
+/// engine is asked about a second page before it has answered the first.
+#[test]
+fn pages_are_read_at_once() {
+    if std::thread::available_parallelism().map_or(1, |cores| cores.get()) < 3 {
+        return;
+    }
+    let document = render::open(&fixture::scanned_pdf()).unwrap();
+    let (reading, most) = (AtomicUsize::new(0), AtomicUsize::new(0));
+    let found = ocr::recognise_with(&*document, &Default::default(), |_, _, _, _, _| {
+        let now = reading.fetch_add(1, Ordering::SeqCst) + 1;
+        most.fetch_max(now, Ordering::SeqCst);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        reading.fetch_sub(1, Ordering::SeqCst);
+        Ok(Vec::new())
+    })
+    .unwrap();
+    assert_eq!(found.pages.len(), 5);
+    assert!(most.load(Ordering::SeqCst) > 1, "one page at a time");
+}
+
+#[cfg(unix)]
+/// A script at `path` that runs `body`, written by another process. On
+/// Linux a program cannot be started while any process holds it open for
+/// writing, and a test thread that starts a process while this one writes
+/// the file would hold it.
+fn write_script(path: &std::path::Path, body: &str) {
+    use std::io::Write;
+    let mut sh = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("cat > \"$1\" && chmod 755 \"$1\"")
+        .arg("sh")
+        .arg(path)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    sh.stdin.take().unwrap().write_all(body.as_bytes()).unwrap();
+    assert!(sh.wait().unwrap().success());
 }

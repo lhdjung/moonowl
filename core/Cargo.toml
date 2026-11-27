@@ -1,0 +1,74 @@
+[package]
+name = "moonowl-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+authors = ["Lukas Jung <71007825+lhdjung@users.noreply.github.com>"]
+description = "Moonowl's documents, settings and themes, with no interface"
+
+# Nothing in this crate draws or handles input: there is no Dioxus, Blitz,
+# winit or wgpu here. The app in the folder above is the interface.
+
+[features]
+# The test documents in `fixture.rs`, and the mailbox's way of holding news
+# back. The app's `harness` feature turns this on, and so does the self
+# dev-dependency below for this crate's own tests.
+harness = []
+
+[dependencies]
+# Exactly this version: each pdfium-render release asks for the functions of
+# a newer pdfium, and the library is downloaded at the tag that matches it
+# (scripts/pdfium.sh). A newer one fails to load the library at all.
+pdfium-render = { version = "=0.9.3", default-features = false, features = ["pdfium_latest", "thread_safe"] }
+# What pdfium cannot write: a new file's resource dictionaries, cut down to
+# what each page draws. See `arrange::slim`. Its default features are a clock
+# and a thread pool, and neither is wanted.
+lopdf = { version = "0.46.0", default-features = false }
+# Whether a system font has a glyph for every letter of a line typed under a
+# signature. Already in the tree under `owned_ttf_parser`, at this version.
+ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
+
+# Pictures made into pages, and pages saved as pictures. Already in the tree
+# under Blitz, with PNG and JPEG.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# A SyncTeX file is gzipped. Already in the tree under `lopdf` and `png`.
+flate2 = "1"
+# A page saved as a picture is written a strip at a time, which `image`'s
+# encoder cannot do. Already in the tree under `image`.
+png = "0.18"
+
+# Themes, palettes, settings, the library and the keys are TOML files.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+# A settings write that keeps the reader's comments. Already in the tree under
+# `toml`, at this version.
+toml_edit = "0.22"
+
+# What `fold` in `search.rs` needs: NFKD, one character at a time. A Rust
+# binary has to bring the tables with it, and these are 100KB of them.
+unicode-normalization = "0.1"
+
+# The themes and palettes folders and each open document are watched. See
+# `watch.rs`.
+notify = "8"
+
+# A comment's date, read and written in the reader's own time zone. Already in
+# the tree under `pdfium-render`, whose date setters take its `DateTime`.
+chrono = "0.4"
+
+# Two versions of a document compared word by word. See `compare.rs`.
+similar = { version = "3.2.1", default-features = false, features = ["std"] }
+
+# `build.rs` reads the shipped theme and palette files and refuses to build
+# one that will not parse or that names a colour the renderer cannot read.
+[build-dependencies]
+toml = "0.8"
+
+[dev-dependencies]
+moonowl-core = { path = ".", features = ["harness"] }
+
+# Vision, for recognising text, and the system's appearance.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
