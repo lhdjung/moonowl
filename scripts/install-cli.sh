@@ -3,7 +3,7 @@
 # with pdfium in ~/.local/lib/Moonowl, which is where the tool looks for it
 # beside ../lib/Moonowl. It is built as `moonowl-cli`, because it shares the
 # target folder with the app's `Moonowl`, and macOS does not tell the two
-# names apart. Windows is not covered yet.
+# names apart. Windows has scripts/install-cli.ps1.
 set -eu
 cd "$(dirname "$0")/.."
 

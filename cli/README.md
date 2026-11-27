@@ -25,6 +25,10 @@ No command writes over an existing file.
 
 `scripts/install-cli.sh` builds it and installs it as `~/.local/bin/moonowl`,
 with pdfium beside it in `~/.local/lib/Moonowl`, on macOS and Linux.
+On Windows, `scripts/install-cli.ps1` installs it as `moonowl.exe` in
+`%LOCALAPPDATA%\Programs\moonowl-cli`, with `pdfium.dll` beside it, and
+puts that folder on your PATH. It has a folder of its own because Windows
+does not tell `moonowl.exe` and the app's `Moonowl.exe` apart.
 
 In the workspace it is built as `moonowl-cli` (`cargo build -p moonowl-cli`),
 since it shares the target folder with the app's `Moonowl`, and macOS does

@@ -98,7 +98,7 @@ a doc comment naming it in words, never a `use`.
 `cli/` is the command-line tool, `moonowl`, a third member that depends
 on the core alone. It is built as `moonowl-cli`, since it shares the
 target folder with the app's `Moonowl` and macOS does not tell the two
-names apart, and `scripts/install-cli.sh` installs it as `moonowl`.
+names apart, and `scripts/install-cli.sh` (or `.ps1`) installs it as `moonowl`.
 
 ```
 src/              the app: the interface, the windows, the keyboard
