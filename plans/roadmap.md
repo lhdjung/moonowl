@@ -82,6 +82,14 @@ reasoning behind each built feature, is `plans/page-edits.md` at commit
 
 ## Not planned
 
+- **Writing a highlight in the helper process**, so that pdfium's lock is
+  not held while the document is saved. Measured on 27 November 2026, a
+  highlight held the lock for 0.04 to 0.21 seconds on scans and books of
+  34 to 65MB, and for 0.63 seconds on a 1,668-page encyclopedia of 30MB:
+  the number of pages counts more than the size. Only a page that comes
+  into view during that moment waits, and the helper would add the time it
+  takes to start and to send the file both ways. Worth doing only if a
+  real document holds the lock for well over a second.
 - **Rewriting the page's own text.** A PDF usually carries only the
   letters its text uses, so a new letter often has no shape to draw it
   with, and lines never reflow. It works in a demonstration and fails on
