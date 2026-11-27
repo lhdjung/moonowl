@@ -46,6 +46,7 @@ impl Viewer {
             Choosing::SavePicture(page) => self.write_picture(page, first),
             Choosing::SaveText => self.write_text(first),
             Choosing::SaveFlattened => self.write_flattened(first),
+            Choosing::SaveClean => self.write_clean(first),
             Choosing::SaveRecognised => self.write_recognised(first),
             Choosing::SaveAttachment(carried, name) => self.write_attachment(carried, &name, first),
             Choosing::AddFiles => self.take_files(paths),
@@ -148,6 +149,51 @@ impl Viewer {
         }
         let suggested = crate::arrange::beside(self.document.path(), "flattened");
         self.choose.ask(Choosing::SaveFlattened, Some(suggested));
+    }
+
+    /// The Document menu's "Clean copy": where to save a copy without its
+    /// highlights, notes and comments, for sharing.
+    pub fn save_clean(&mut self) {
+        self.close_menu();
+        if self.document.encrypted() {
+            self.notice = "This document is locked with a password, so a clean copy of it \
+                           cannot be made."
+                .into();
+            return;
+        }
+        if self.refuses_job(Reads::Nothing) {
+            return;
+        }
+        let suggested = crate::arrange::beside(self.document.path(), "clean");
+        self.choose.ask(Choosing::SaveClean, Some(suggested));
+    }
+
+    /// The clean copy written to `to`, on a thread. See
+    /// [`crate::markup::copy_without`].
+    fn write_clean(&mut self, to: String) {
+        let from = self.document.path().to_string();
+        self.on_thread_without_document(
+            {
+                let to = to.clone();
+                move || crate::markup::copy_without(&from, &to, crate::markup::Leaving::ALL)
+            },
+            move |viewer, saved| {
+                viewer.notice = match saved {
+                    Ok(0) => "This document has no highlights, notes or comments to leave out, \
+                              so no copy was saved."
+                        .into(),
+                    Ok(count) => {
+                        let name = crate::store::file_name(&to);
+                        let left = match count {
+                            1 => "1 annotation".to_string(),
+                            n => format!("{n} annotations"),
+                        };
+                        format!("Saved a copy without {left} as {name}.")
+                    }
+                    Err(said) => said,
+                }
+            },
+        );
     }
 
     /// The flattened copy written to `to`, on a thread.

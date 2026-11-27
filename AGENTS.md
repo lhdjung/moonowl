@@ -448,6 +448,13 @@ square is a review comment, not one of the reader's marks.
   from its old page, and writes the lot in one go. Offered as a button, never
   automatic: this app does not write to somebody's file without being asked.
   What is not found stays in the journal and is counted out loud.
+- **A clean copy** ("Clean copy" under Export, `markup::copy_without`) is
+  a copy for sharing without the reader's marks and other programs' sticky
+  notes and text boxes, with their popups and replies. Links, form fields,
+  drawn and typed signatures and every other annotation stay. It is
+  written through the same path as a mark, into a new file, so a signed
+  document's copy is appended to its signed bytes. `Leaving` chooses
+  highlights, notes or both; the menu offers both.
 
 ## Forms (`forms.rs`, `app/forms.rs`)
 

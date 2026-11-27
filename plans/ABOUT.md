@@ -110,8 +110,9 @@ editor can show the matching place in the PDF.
   comparison as a PDF report.
 - **Make scanned pages searchable.** "Recognise text…" saves a copy in which
   the words on scanned pages can be searched, selected and copied.
-- **Export** a page as a picture, the document's text, or a copy with its
-  highlights and signatures drawn into the pages.
+- **Export** a page as a picture, the document's text, a copy with its
+  highlights and signatures drawn into the pages, or a clean copy without
+  any highlights, notes or comments, for sharing.
 - **Print.**
 
 ## What it does not do

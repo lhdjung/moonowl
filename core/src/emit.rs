@@ -470,6 +470,8 @@ pub enum Choosing {
     SaveText,
     /// Where a copy with the annotations drawn into the pages is saved.
     SaveFlattened,
+    /// Where a copy without highlights, notes and comments is saved.
+    SaveClean,
     /// Where a copy with the text of its scanned pages recognised is saved.
     SaveRecognised,
     /// Where the file the document carries in this place, with this name,

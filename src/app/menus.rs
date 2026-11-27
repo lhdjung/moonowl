@@ -245,6 +245,13 @@ pub(super) fn document_items(
                             onclick: move |_| viewer.write().save_flattened(),
                             "Flattened"
                         }
+                        button {
+                            class: "chip action menu-export-format",
+                            "data-item": "save-clean",
+                            title: "A copy without highlights, notes or comments. Links, form fields and signatures stay.",
+                            onclick: move |_| viewer.write().save_clean(),
+                            "Clean copy"
+                        }
                         if highlighted {
                             button {
                                 class: "chip action menu-export-format",

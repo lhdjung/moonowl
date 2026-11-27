@@ -679,6 +679,12 @@ fn set_string_values(page: &PdfPage, values: &[(&str, String)]) {
 /// This asks pdfium directly, because `pdfium-render` does not read an
 /// annotation's links.
 fn popup_of(page: &PdfPage, index: usize) -> Option<usize> {
+    linked(page, index, "Popup")
+}
+
+/// The place in the page's annotations of the one that annotation `index`
+/// names under `key`: its `/Popup`, or with `IRT` the note it replies to.
+fn linked(page: &PdfPage, index: usize, key: &str) -> Option<usize> {
     let bindings = page.bindings();
     let handle = bindings.get_handle_from_page(page);
     unsafe {
@@ -686,7 +692,7 @@ fn popup_of(page: &PdfPage, index: usize) -> Option<usize> {
         if annotation.is_null() {
             return None;
         }
-        let popup = bindings.FPDFAnnot_GetLinkedAnnot(annotation, "Popup");
+        let popup = bindings.FPDFAnnot_GetLinkedAnnot(annotation, key);
         bindings.FPDFPage_CloseAnnot(annotation);
         if popup.is_null() {
             return None;
@@ -1014,6 +1020,96 @@ pub fn remove_all(path: &str, pages: &[usize]) -> Result<(), String> {
     })
 }
 
+/// What a copy without annotations leaves out.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Leaving {
+    /// The reader's marks: the four text markups and the areas this app
+    /// boxes in.
+    pub highlights: bool,
+    /// Sticky notes and text boxes, which other programs write.
+    pub notes: bool,
+}
+
+impl Leaving {
+    /// Both.
+    pub const ALL: Leaving = Leaving {
+        highlights: true,
+        notes: true,
+    };
+}
+
+/// A copy of the document at `from`, written to `to`, without the
+/// annotations `leaving` names, and without their popups and the replies to
+/// them. Links, form fields, drawn and typed signatures and every other kind
+/// of annotation stay, and the document itself is not changed. A signed
+/// document's copy is appended to its signed bytes, as a mark is, so its
+/// signature still holds. Answers how many annotations were left out, not
+/// counting popups. When there are none, nothing is written.
+pub fn copy_without(from: &str, to: &str, leaving: Leaving) -> Result<usize, String> {
+    let mut count = 0;
+    let written = changed(from, Update::Annotations, |bytes| {
+        saved_by_pdfium(from, bytes, |document| {
+            for mut page in document.pages().iter() {
+                let doomed = leaving_out(&page, leaving);
+                count += doomed.iter().filter(|(_, counted)| *counted).count();
+                let annotations = page.annotations_mut();
+                // From the end, so that taking one out moves none still to come.
+                for &(index, _) in doomed.iter().rev() {
+                    if let Ok(annotation) = annotations.get(index) {
+                        annotations
+                            .delete_annotation(annotation)
+                            .map_err(|e| format!("an annotation could not be taken out: {e}"))?;
+                    }
+                }
+            }
+            Ok(())
+        })
+    })?;
+    if count > 0 {
+        crate::config::atomic_write_new(std::path::Path::new(to), &written)?;
+    }
+    Ok(count)
+}
+
+/// The annotations on `page` that a copy without `leaving` leaves out, in
+/// order, each with whether it counts: a popup goes with its annotation and
+/// is not counted. A reply goes with the note or mark it replies to.
+fn leaving_out(page: &PdfPage, leaving: Leaving) -> Vec<(usize, bool)> {
+    let annotations = page.annotations();
+    let mut doomed = std::collections::BTreeMap::new();
+    for index in 0..annotations.len() {
+        let Ok(annotation) = annotations.get(index) else {
+            continue;
+        };
+        let note = matches!(
+            annotation,
+            PdfPageAnnotation::Text(_) | PdfPageAnnotation::FreeText(_)
+        );
+        if (leaving.highlights && style_of(&annotation).is_some()) || (leaving.notes && note) {
+            doomed.insert(index, true);
+        }
+    }
+    // Replies to what goes, and replies to those, until there are no more.
+    loop {
+        let replies: Vec<usize> = (0..annotations.len())
+            .filter(|index| !doomed.contains_key(index))
+            .filter(|&index| linked(page, index, "IRT").is_some_and(|to| doomed.contains_key(&to)))
+            .collect();
+        if replies.is_empty() {
+            break;
+        }
+        doomed.extend(replies.into_iter().map(|index| (index, true)));
+    }
+    let popups: Vec<usize> = doomed
+        .keys()
+        .filter_map(|&index| popup_of(page, index))
+        .collect();
+    for popup in popups {
+        doomed.entry(popup).or_insert(false);
+    }
+    doomed.into_iter().collect()
+}
+
 /// Open the document, change it, and write it back where it came from.
 ///
 /// The document is loaded **from bytes** rather than from the path, which is
@@ -1142,6 +1238,18 @@ pub(crate) fn rewrite(
     update: crate::objects::Update,
     change: impl FnOnce(Vec<u8>) -> Result<Saved, String>,
 ) -> Result<(), String> {
+    let written = changed(path, update, change)?;
+    write_over(std::path::Path::new(path), &written)
+}
+
+/// The document at `path` as [`rewrite`] would write it, without writing
+/// it: changed by `change`, and appended to its signed bytes where it is
+/// signed.
+fn changed(
+    path: &str,
+    update: crate::objects::Update,
+    change: impl FnOnce(Vec<u8>) -> Result<Saved, String>,
+) -> Result<Vec<u8>, String> {
     // **A whole document or none.** The check on the stamp that `write`
     // makes comes a moment before this read, and a compiler starting in that
     // moment would hand pdfium half a draft — which it repairs, and which
@@ -1213,7 +1321,7 @@ pub(crate) fn rewrite(
         }
         false => written,
     };
-    write_over(std::path::Path::new(path), &written)
+    Ok(written)
 }
 
 /// **The document as it was before a change, for undo.** A copy in the
