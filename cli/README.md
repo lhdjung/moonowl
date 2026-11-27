@@ -19,7 +19,7 @@ moonowl synctex paper.pdf 3 120 400         # the source line of a place
 moonowl synctex paper.pdf paper.tex 57      # the place of a source line
 ```
 
-No command writes over a file that is already there.
+No command writes over an existing file.
 
 ## Installing
 

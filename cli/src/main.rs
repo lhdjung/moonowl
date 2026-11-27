@@ -6,6 +6,8 @@ use moonowl_core::{arrange, compare, objects, ocr, render, report, synctex};
 use std::process::ExitCode;
 
 const USAGE: &str = "\
+moonowl: combine, split and compare PDFs, and make scanned ones searchable.
+
 Usage:
   moonowl combine OUT.pdf IN.pdf...        Put the pages of several files into one.
   moonowl pages IN.pdf PAGES OUT.pdf       Save some pages as a new file, for
@@ -30,7 +32,7 @@ Usage:
   moonowl synctex IN.pdf FILE.tex LINE     The place in the document that a
                                            source line made.
 
-No command writes over a file that is already there.";
+No command writes over an existing file.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
