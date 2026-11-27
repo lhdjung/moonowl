@@ -16,6 +16,10 @@ items in section 1 want a fresh look.
 **Status, 25 October (`3814a76`).** Section 6 was gone through again; what
 was done then is marked with its commit.
 
+**Status, 27 November (`34ed5a5`).** Sections 4 and 6 were checked against
+the code again, and what is done now is marked with its commit. Section 1
+still needs a real window.
+
 Screenshots from the review were in the session's scratchpad, which is
 temporary. Regenerate with a throwaway `tests/zz_*.rs` that calls
 `Reader::save_png`.
@@ -51,7 +55,8 @@ app.
   whether that feels right.
 - **Escape now keeps a comment** (`3a05b8b`). It saves what was typed, and ⌘Z
   takes it back. Escape on a new selection's comment makes a highlight in a
-  random colour. See whether that feels right in use.
+  random colour. See whether that feels right in use. (Since `79e4b55` the
+  highlight is in the colour last highlighted in.)
 - *Done: the comment is saved when the write lands.* **A comment while a
   write is under way.** The field stays up and the notice says "Still
   writing…", and it stays up after the write lands. You have to press Done
@@ -175,7 +180,10 @@ missing.
   thread feeding the scan.
 - **`spread_fitted`** is a setting the reader never sets; it only records
   whose fit is in force. All five places that write fit or zoom also write it.
-- **A comment being typed when the document changes on disk** (a recompile)
+- *Partly (`186f3a4`): a comment on a highlight that is still in the file
+  outlives a reload. A new selection's comment is still dropped, and the
+  reader is told so (`eb9c05d`).*
+  **A comment being typed when the document changes on disk** (a recompile)
   is dropped with its passage: the passage's place in the old text means
   nothing in the new one. Only a write of our own keeps it.
 - **The trimmed-margins test** checks that `crop` is written and the ratio
@@ -184,8 +192,8 @@ missing.
 - **Lost vs. kept beside the document** is told apart by `Highlight.lost`.
   Journals written before this commit have no flag, so a lost highlight
   already in one is still drawn until it is restored or removed.
-- **Parity:** `doc-title` is allowed +8px (the fade's padding), and the
-  toolbar widths are measured at 1440 now, because labels fold below 1400.
+- *Gone with the parity tests (`64cc2b9`).* **Parity:** `doc-title` is
+  allowed +8px (the fade's padding), and the toolbar widths are measured at 1440 now, because labels fold below 1400.
 
 ## 5. Decided against
 
@@ -227,9 +235,10 @@ Not in the list you approved. Roughly in order of how much they matter.
   - The Keyboard page says "keybinds" and explains the file watcher.
   - "Delete Nord" in one place, "Delete this theme" in another (the
     ellipses are gone, `e18323d`).
-- *Partly: the Theme menu and, since `7255cd5`, the Settings grid mark
-  "Yours". The order is the shipped `themes/order`, which is yours to
-  decide.* The
+- *Done: the Theme menu and, since `7255cd5`, the Settings grid mark
+  "Yours". The Theme menu lists the built-in themes under Light and Dark
+  (`574d7f1`), and `themes/order` lists the light themes before the dark
+  ones (`5472357`).* The
   theme grid doesn't mark your own themes, and light and dark themes are
   mixed in the menu order.
 - *Done (`a7ddee8`): the page fades out at the bottom.* The Settings dialog is a fixed height, so pages are cut off mid-card with no
@@ -270,7 +279,9 @@ Not in the list you approved. Roughly in order of how much they matter.
   that changes nothing in it does not render it, and the results are cut
   once for each change in the matches and compared by pointer (`3814a76`).*
   The sidebar rebuilt its rows (up to 300 results) on every scroll frame.
-- *Partly (`d972b88`): 3.3s to 0.17s on 1,668 pages.* Opening a large scan
+- *Done (`d972b88`, `a3bc930`, `d1d5797`): 3.3s to 0.17s on 1,668 pages,
+  and every document but the launch's is opened on a thread. The launch's
+  is opened before the window is drawn.* Opening a large scan
   still freezes the window. A reload already opens on a thread.
 
 **Markup and messages**
@@ -295,7 +306,9 @@ Not in the list you approved. Roughly in order of how much they matter.
 **Looks**
 - *Partly (`49b83ab`): the × is grey until the pointer is on it. The two
   popovers stay different, since one shows the theme's selection and the
-  other the highlight palette.* The selection popover and a highlight's
+  other the highlight palette. Since `32c8ace` the selection popover is
+  dressed as a menu, as a highlight's is, but its swatches are round and a
+  highlight's are square.* The selection popover and a highlight's
   popover look unrelated. The red × only dismisses, but looks like delete.
 - *Done (`f4d03f0`): the default palette is "soft".* The default highlight colours are loud. (The pure #ffff00 seen in the
   screenshots was a test document's own colour; the defaults are `#ffd60a`

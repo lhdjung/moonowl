@@ -4,6 +4,11 @@ What is left of the audit of `5ab3050`. Everything else it found is fixed, one
 commit per fix, on `page-field-selection` (`7c6a322` to `45d6b59`). Each item
 below waits on the trigger in its heading.
 
+**Status, 27 November 2026 (`34ed5a5`).** Every open item was checked
+against the code and the CI runs. CI has now run, and that item is marked.
+The rest are still open: no `v*` release has been made, the revs the fork
+pins are not tagged, and printing on Windows has still not been run.
+
 ## Follow-up check, 10 October 2026: the fixes, reviewed
 
 A second pass over the commits the audit produced (`7c6a322` to `a91ec4e`),
@@ -12,7 +17,10 @@ toolbar memo, the dialogs) change no behaviour; what the fixes themselves got
 wrong or left out is fixed, one commit per item, `61c2bd2` to `1e3bd35`,
 each with a test where one can fail. What is left:
 
-- **CI has still not run.** The checksum step, the release retry, the
+- *Partly: CI runs on every pull request and Nightly on every push to
+  main, and both passed on 24 November (`34ed5a5`). No release has been
+  dispatched, so the release retry and the `tag` job are still untested.*
+  **CI has still not run.** The checksum step, the release retry, the
   nightly guard and the tokens are fixed on paper; the first push to main
   and the first dispatched release are their test.
 - *Done (`4891b65`).* `Bar::of` read `library.toml`'s time on every scroll
@@ -48,13 +56,15 @@ in the README into a 404. Once a tagged release exists:
 - Landscape pages are not auto-rotated, unlike the Mac path.
 
 `fill_in_place` in `markup.rs` (`45d6b59`) has been built for Windows but
-never run.
+never run. The suite now runs on Windows in CI, which runs
+`a_copy_set_aside_is_never_written_over` there, but no test makes the
+rename fail, so the fill itself has still not run.
 
 ## When it is noticed in use
 
 - **The Contents list is not virtualised**: one button per heading.
-- *Done: the next write sweeps them once they are an hour old, and the folder
-  is synced after the rename.* **Leftover temp files.** `atomic_write` leaves `.<name>.<pid>.<n>.tmp`
+- *Done (`18ae42e`): the next write sweeps them once they are an hour old,
+  and the folder is synced after the rename.* **Leftover temp files.** `atomic_write` leaves `.<name>.<pid>.<n>.tmp`
   beside the PDF if the process dies between create and rename, and nothing
   sweeps it. There is no directory fsync after the rename either, which costs
   durability only.
