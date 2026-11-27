@@ -252,10 +252,7 @@ pub fn worth_calling(title: &str, file_name: &str) -> bool {
     const SUFFIXES: &[&str] = &[
         ".pdf", ".doc", ".docx", ".tex", ".indd", ".ppt", ".pptx", ".odt", ".rtf", ".ps", ".dvi",
     ];
-    if SUFFIXES.iter().any(|suffix| folded.ends_with(suffix)) {
-        return false;
-    }
-    true
+    !SUFFIXES.iter().any(|suffix| folded.ends_with(suffix))
 }
 
 /// What to call a document: its own `/Title` where that is worth having, and

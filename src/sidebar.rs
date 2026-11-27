@@ -255,14 +255,9 @@ impl Column {
         let top = scroll - margin;
         let bottom = scroll + height + margin;
         let first = self.first_row_ending_after(top);
-        let mut mounted = Vec::new();
-        for index in first..self.tops.len() {
-            if self.tops[index] > bottom {
-                break;
-            }
-            mounted.push(index);
-        }
-        mounted
+        (first..self.tops.len())
+            .take_while(|&index| self.tops[index] <= bottom)
+            .collect()
     }
 
     /// The first row whose bottom edge is below `y`.
