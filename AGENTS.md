@@ -95,6 +95,11 @@ module in both and the tests reach everything as `moonowl::…`. A module that
 needs the interface stays in `src/`; anything the core needs from the app is
 a doc comment naming it in words, never a `use`.
 
+The command-line tool, `moonowl-cli`, is a repository of its own beside
+this one (`../moonowl-cli`), and depends on `core/` by path. Nothing here
+builds or tests it, so a change to a core function it calls is checked by
+building it there.
+
 ```
 src/              the app: the interface, the windows, the keyboard
   main.rs         the process: the shell, the first window, the socket
