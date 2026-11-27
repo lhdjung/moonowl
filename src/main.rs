@@ -14,10 +14,13 @@ Usage:
                                            as the reader's organiser does.
   moonowl compare A.pdf B.pdf REPORT.pdf   Compare two versions word by word and
                                            save the report as a PDF.
-  moonowl ocr IN.pdf...                    Save a copy of each file whose scanned
+  moonowl ocr IN.pdf|FOLDER...             Save a copy of each file whose scanned
                                            pages have searchable text, beside it
-                                           as IN-searchable.pdf. Several files
-                                           are recognised at once.
+                                           as IN-searchable.pdf. A folder means
+                                           every PDF in it. Several files are
+                                           recognised at once.
+      --to OUT.pdf                         The copy's name, for one file.
+      --into FOLDER                        Where the copies go, for any number.
   moonowl synctex IN.pdf PAGE X Y          The source line that made a place on a
                                            page (PAGE from 1, X and Y in points
                                            from the top left).
@@ -45,11 +48,7 @@ fn main() -> ExitCode {
         ["pages", input, pages, out] => pages_of(input, pages, out),
         ["split", "--chapters", input, folder] => split_at_chapters(input, folder),
         ["compare", a, b, out] => compare_into(a, b, out),
-        // One of several files, recognised by a copy of this program that
-        // `recognise_all` started.
-        ["ocr", ALONE, input] => recognise(input, true),
-        ["ocr", input] => recognise(input, false),
-        ["ocr", inputs @ ..] if !inputs.is_empty() => recognise_all(inputs),
+        ["ocr", rest @ ..] => ocr_command(rest),
         ["synctex", pdf, tex, line] => synctex_forward(pdf, tex, line),
         ["synctex", pdf, page, x, y] => synctex_inverse(pdf, page, x, y),
         _ => {
@@ -234,12 +233,99 @@ fn compare_into(a: &str, b: &str, out: &str) -> Result<String, String> {
 
 /// A copy of `input` with the words on its scanned pages written in, as
 /// `out`.
+/// `moonowl ocr`: the files and folders named, and where each copy goes.
+/// A copy is called `IN-searchable.pdf`, the name the reader suggests,
+/// beside its file or in the folder `--into` names, unless `--to` names
+/// the copy of a single file.
+fn ocr_command(args: &[&str]) -> Result<String, String> {
+    // One of several files, recognised by a copy of this program that
+    // `recognise_all` started.
+    if let [ALONE, input, out] = args {
+        return recognise(input, out, true);
+    }
+    let (mut inputs, mut to, mut into) = (Vec::new(), None, None);
+    let mut given = args.iter();
+    while let Some(&arg) = given.next() {
+        match arg {
+            "--to" => to = Some(*given.next().ok_or("--to needs the name of the copy.")?),
+            "--into" => into = Some(*given.next().ok_or("--into needs a folder.")?),
+            flag if flag.starts_with("--") => {
+                return Err(format!("{flag} is not an option of ocr."))
+            }
+            path => inputs.extend(pdfs_in(path)?),
+        }
+    }
+    if inputs.is_empty() {
+        return Err("Name the files or folders to recognise.".into());
+    }
+    if to.is_some() && (into.is_some() || inputs.len() > 1) {
+        return Err("--to names the copy of one file. For several, use --into FOLDER.".into());
+    }
+    if let Some(folder) = into {
+        std::fs::create_dir_all(folder).map_err(|e| format!("{folder}: {e}"))?;
+    }
+    let jobs: Vec<(String, String)> = (inputs.into_iter())
+        .map(|input| {
+            let beside = arrange::beside(&input, "searchable");
+            let out = match (to, into) {
+                (Some(to), _) => to.to_string(),
+                (None, Some(folder)) => {
+                    let name = std::path::Path::new(&beside)
+                        .file_name()
+                        .unwrap_or_default();
+                    std::path::Path::new(folder)
+                        .join(name)
+                        .to_string_lossy()
+                        .into_owned()
+                }
+                (None, None) => beside,
+            };
+            (input, out)
+        })
+        .collect();
+    let mut taken = std::collections::HashSet::new();
+    if let Some((_, out)) = jobs.iter().find(|(_, out)| !taken.insert(out)) {
+        return Err(format!("Two files would both be saved as {out}."));
+    }
+    match jobs.as_slice() {
+        [(input, out)] => recognise(input, out, false),
+        _ => recognise_all(&jobs),
+    }
+}
+
+/// The PDFs `path` names: the file itself, or every PDF directly in a
+/// folder, in order of name, without the copies an earlier run made.
+fn pdfs_in(path: &str) -> Result<Vec<String>, String> {
+    let folder = std::path::Path::new(path);
+    if !folder.is_dir() {
+        return Ok(vec![path.to_string()]);
+    }
+    let entries = std::fs::read_dir(folder).map_err(|e| format!("{path}: {e}"))?;
+    let mut found: Vec<String> = (entries.flatten())
+        .map(|entry| entry.path())
+        .filter(|file| file.is_file())
+        .filter(|file| {
+            file.extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+        })
+        .filter(|file| {
+            !file
+                .file_stem()
+                .is_some_and(|stem| stem.to_string_lossy().ends_with("-searchable"))
+        })
+        .map(|file| file.to_string_lossy().into_owned())
+        .collect();
+    found.sort();
+    if found.is_empty() {
+        return Err(format!("{path} has no PDFs in it."));
+    }
+    Ok(found)
+}
+
 /// A copy of `input` with the words on its scanned pages written in, as
-/// `IN-searchable.pdf` beside it, the name the reader suggests. `alone` is
-/// for one file of several, which reads one page at a time, since the
-/// other files use the other cores.
-fn recognise(input: &str, alone: bool) -> Result<String, String> {
-    let out = arrange::beside(input, "searchable");
+/// `out`. `alone` is for one file of several, which reads one page at a
+/// time, since the other files use the other cores.
+fn recognise(input: &str, out: &str, alone: bool) -> Result<String, String> {
     if std::path::Path::new(&out).exists() {
         return Err(format!("{out} is already there."));
     }
@@ -261,7 +347,7 @@ fn recognise(input: &str, alone: bool) -> Result<String, String> {
     if pages == 0 {
         return Ok(format!("{input} has no text to recognise.{failed}"));
     }
-    ocr::write(input, read, &found.pages, &out).map_err(|why| format!("{input}: {why}"))?;
+    ocr::write(input, read, &found.pages, out).map_err(|why| format!("{input}: {why}"))?;
     Ok(format!(
         "Recognised text on {pages} page{}, saved as {out}.{failed}",
         plural(pages)
@@ -271,11 +357,11 @@ fn recognise(input: &str, alone: bool) -> Result<String, String> {
 /// Said to a copy of this program to recognise one file of several.
 const ALONE: &str = "--one-of-several";
 
-/// Each of `inputs` recognised by a copy of this program of its own, as
-/// many at once as the machine has cores. Processes rather than threads,
-/// because pdfium answers one call at a time in each process. What each
-/// copy says is passed on as it finishes.
-fn recognise_all(inputs: &[&str]) -> Result<String, String> {
+/// Each file of `jobs` recognised into its copy by a copy of this program
+/// of its own, as many at once as the machine has cores. Processes rather
+/// than threads, because pdfium answers one call at a time in each
+/// process. What each copy says is passed on as it finishes.
+fn recognise_all(jobs: &[(String, String)]) -> Result<String, String> {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     let program = std::env::current_exe().map_err(|e| format!("this program: {e}"))?;
     let at_once = std::thread::available_parallelism()
@@ -283,11 +369,11 @@ fn recognise_all(inputs: &[&str]) -> Result<String, String> {
         .clamp(1, 8);
     let (next, failed) = (AtomicUsize::new(0), AtomicBool::new(false));
     std::thread::scope(|scope| {
-        for _ in 0..at_once.min(inputs.len()) {
+        for _ in 0..at_once.min(jobs.len()) {
             scope.spawn(|| {
-                while let Some(input) = inputs.get(next.fetch_add(1, Ordering::Relaxed)) {
+                while let Some((input, out)) = jobs.get(next.fetch_add(1, Ordering::Relaxed)) {
                     let ran = std::process::Command::new(&program)
-                        .args(["ocr", ALONE, input])
+                        .args(["ocr", ALONE, input, out])
                         .output();
                     match ran {
                         Ok(ran) => {

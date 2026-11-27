@@ -42,3 +42,53 @@ fn several_files_are_recognised_at_once() {
     assert!(String::from_utf8_lossy(&again.stderr).contains("is already there"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// **A folder means every PDF in it**, leaving out copies an earlier run
+/// made; `--into` puts the copies elsewhere, and `--to` names the copy of
+/// one file only.
+#[test]
+fn a_folder_and_the_names_of_the_copies() {
+    let dir = std::env::temp_dir().join(format!("moonowl-cli-folder-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let (scans, copies) = (dir.join("scans"), dir.join("copies"));
+    std::fs::create_dir_all(&scans).unwrap();
+    let scan = moonowl_core::fixture::scanned_pdf();
+    for name in ["a.pdf", "b.PDF", "old-searchable.pdf"] {
+        std::fs::copy(&scan, scans.join(name)).unwrap();
+    }
+    std::fs::write(scans.join("notes.txt"), "not a PDF").unwrap();
+    let run = |args: &[&str]| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_moonowl"))
+            .arg("ocr")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let ran = run(&[scans.to_str().unwrap(), "--into", copies.to_str().unwrap()]);
+    assert!(
+        ran.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let mut made: Vec<String> = std::fs::read_dir(&copies)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    made.sort();
+    assert_eq!(made, ["a-searchable.pdf", "b-searchable.pdf"]);
+
+    let named = dir.join("named.pdf");
+    let a = scans.join("a.pdf");
+    let ran = run(&[a.to_str().unwrap(), "--to", named.to_str().unwrap()]);
+    assert!(
+        ran.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    assert!(named.exists());
+
+    let two = run(&[scans.to_str().unwrap(), "--to", "x.pdf"]);
+    assert!(!two.status.success());
+    assert!(String::from_utf8_lossy(&two.stderr).contains("--into"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

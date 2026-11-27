@@ -12,7 +12,9 @@ moonowl combine all.pdf one.pdf two.pdf
 moonowl pages book.pdf 1-3,7,10- excerpt.pdf
 moonowl split --chapters book.pdf chapters/
 moonowl compare draft-1.pdf draft-2.pdf changes.pdf
-moonowl ocr *.pdf                          # each as NAME-searchable.pdf
+moonowl ocr scans/                         # every PDF in it, each as NAME-searchable.pdf
+moonowl ocr a.pdf b.pdf --into searchable/  # the copies in another folder
+moonowl ocr scan.pdf --to scan-text.pdf     # one copy, named
 moonowl synctex paper.pdf 3 120 400        # → paper.tex:57
 moonowl synctex paper.pdf paper.tex 57     # → page 3 at 72.0 410.2
 ```
