@@ -149,7 +149,7 @@ jobs:
           NO_STRIP: true
         run: |
           set -euo pipefail
-          cargo build --release --target ${{ matrix.target }}
+          cargo build --release -p moonowl --target ${{ matrix.target }}
           cargo packager --release --target ${{ matrix.target }} \
             --formats ${{ matrix.formats }}
 

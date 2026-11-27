@@ -31,7 +31,7 @@ fn several_files_are_recognised_at_once() {
         })
         .collect();
     let run = || {
-        std::process::Command::new(env!("CARGO_BIN_EXE_moonowl"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_moonowl-cli"))
             .arg("ocr")
             .args(&files)
             .output()
@@ -74,7 +74,7 @@ fn a_folder_and_the_names_of_the_copies() {
     }
     std::fs::write(scans.join("notes.txt"), "not a PDF").unwrap();
     let run = |args: &[&str]| {
-        std::process::Command::new(env!("CARGO_BIN_EXE_moonowl"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_moonowl-cli"))
             .arg("ocr")
             .args(args)
             .output()

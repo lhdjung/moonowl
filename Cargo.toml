@@ -9,14 +9,15 @@ license = "MIT OR Apache-2.0"
 authors = ["Lukas Jung <71007825+lhdjung@users.noreply.github.com>"]
 description = "Moonowl — a smooth reading experience"
 
-# The app and `core/`, which holds the documents, settings and themes with no
-# interface. Both are default members, so a plain `cargo test` or `cargo
-# clippy` at the top covers both crates. The Phase 0 spike in
+# The app, `core/`, which holds the documents, settings and themes with no
+# interface, and `cli/`, the command-line tool over the core. All three are
+# default members, so a plain `cargo test` or `cargo clippy` at the top
+# covers every crate. The Phase 0 spike in
 # `plans/dormant/experiments` is a workspace of its own, pinned to the
 # upstream Blitz it was written against.
 [workspace]
-members = ["core"]
-default-members = [".", "core"]
+members = ["core", "cli"]
+default-members = [".", "core", "cli"]
 
 # Which renderer Blitz composites through, and it is the single largest
 # decision in this crate's memory.

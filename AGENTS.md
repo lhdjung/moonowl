@@ -95,10 +95,10 @@ module in both and the tests reach everything as `moonowl::…`. A module that
 needs the interface stays in `src/`; anything the core needs from the app is
 a doc comment naming it in words, never a `use`.
 
-The command-line tool, `moonowl-cli`, is a repository of its own beside
-this one (`../moonowl-cli`), and depends on `core/` by path. Nothing here
-builds or tests it, so a change to a core function it calls is checked by
-building it there.
+`cli/` is the command-line tool, `moonowl`, a third member that depends
+on the core alone. It is built as `moonowl-cli`, since it shares the
+target folder with the app's `Moonowl` and macOS does not tell the two
+names apart, and `scripts/install-cli.sh` installs it as `moonowl`.
 
 ```
 src/              the app: the interface, the windows, the keyboard
@@ -175,6 +175,8 @@ core/src/         moonowl-core: documents, settings and themes
                   themes and highlight palettes share, as one trait
   palettes.rs     highlight palettes, kept on the shelf
   theme.rs settings.rs keys.rs library.rs watch.rs
+cli/              the `moonowl` command: the core's page edits,
+                  comparisons, text recognition and SyncTeX
 core/build.rs     the shipped theme and palette tables, generated from
                   themes/ and palettes/ and checked
 themes/*.toml     the packaged themes, embedded with include_str!

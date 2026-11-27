@@ -41,6 +41,9 @@ else is the app, in `src/`. The app re-exports each core module under its own
 name, so `crate::layout` reads the same in both, and `cargo test -p
 moonowl-core` runs the core's unit tests in seconds without building the
 interface.
+A third crate, `cli/` (the `moonowl` command), puts the core's page edits,
+comparisons, text recognition and SyncTeX on the command line, with no
+interface at all.
 
 ---
 

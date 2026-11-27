@@ -2813,6 +2813,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "moonowl-cli"
+version = "0.1.0"
+dependencies = [
+ "moonowl-core",
+]
+
+[[package]]
 name = "moonowl-core"
 version = "0.1.0"
 dependencies = [
