@@ -1270,12 +1270,12 @@ impl Reader {
     /// Press on something, carry the pointer **with the button held**, and let
     /// go — which is not what `move_mouse_to` does.
     ///
-    /// The shared harness sends its moves with no buttons in them, so a drag
-    /// cannot be expressed with it at all, and Blitz decides whether a gesture
-    /// is a text selection by looking at exactly that. So a press that slides
-    /// two pixels — which is most presses made with a mouse — could not be
-    /// tested here, and it is the gesture that can stop a button in the
-    /// toolbar from firing and highlight its label instead.
+    /// Blitz decides whether a gesture is a text selection by whether a move
+    /// carries a held button. This tests a press that slides two pixels,
+    /// which is most presses made with a mouse, and is the gesture that can
+    /// stop a button in the toolbar from firing and highlight its label
+    /// instead. The shared harness's own `drag` holds the button too, but
+    /// takes points rather than a selector.
     pub fn press_and_drag(&mut self, selector: &str, by: f32) {
         use blitz_traits::events::{BlitzPointerId, MouseEventButton, MouseEventButtons, UiEvent};
         let (x, y) = self.harness.center_of(selector);

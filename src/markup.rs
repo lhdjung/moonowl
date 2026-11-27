@@ -100,9 +100,10 @@ pub struct Standing {
     pub into_file: bool,
     /// Why not, in a sentence, when it cannot.
     pub refused: String,
-    /// Whether the document carries a signature. Asked, not refused: it is
-    /// their document, and a rewrite is exactly the thing a signature is
-    /// there to detect. Said once.
+    /// Whether the document carries a signature. A highlight or a drawn
+    /// signature is appended after the signed bytes without a question. A
+    /// page edit asks first, once, because most programs report a signed
+    /// document's pages as changed after one.
     pub signed: bool,
     /// Whether the document is over [`IN_FILE_LIMIT`]. No page edit is
     /// written into it; "Save as…" from the organiser still writes its pages

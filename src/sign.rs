@@ -11,10 +11,11 @@
 //! write one, and the hard half is not the writing but the trust. The words
 //! the window uses say so rather than implying the green tick.
 //!
-//! What that costs is [`crate::markup::Standing::signed`]: a document already carrying a
-//! cryptographic signature can still be signed with ink, and doing so breaks
-//! the signature — the save is a full rewrite. The reader is told once, before
-//! it happens.
+//! A document that already carries a cryptographic signature can still be
+//! signed with ink. The ink is appended after the signed bytes as an
+//! incremental update (`objects::incremental`), so the signature stays valid.
+//! A certified document whose `/DocMDP` is below `/P 3` refuses the ink, and a
+//! signed document that cannot be written that way is not written at all.
 //!
 //! **Ink rather than a stamp**, which is what the assessment reached for and
 //! what Preview writes. Three reasons, and the third decided it: it is vector,
