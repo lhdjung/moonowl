@@ -605,9 +605,11 @@ fn a_tesseract_given_up_on_ends_what_it_started() {
     );
     std::fs::write(&program, script).unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // The limit has to leave the script time to start and write down its
+    // child, even on a machine busy with other tests.
     let answer = ocr::tesseract_at(
         program.to_str().unwrap(),
-        std::time::Duration::from_millis(500),
+        std::time::Duration::from_secs(3),
         &[0; 64],
         8,
         8,
