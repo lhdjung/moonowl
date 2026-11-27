@@ -1,0 +1,25 @@
+[package]
+name = "moonowl-cli"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Moonowl's page edits, comparisons, text recognition and SyncTeX, from the command line"
+
+[[bin]]
+name = "moonowl"
+path = "src/main.rs"
+
+[dependencies]
+# The documents, settings and themes of the reader, with no interface. A
+# path rather than a git dependency while both are worked on together.
+moonowl-core = { path = "../moonowl/core" }
+
+[dev-dependencies]
+# The reader's test documents, for the tests.
+moonowl-core = { path = "../moonowl/core", features = ["harness"] }
+
+[profile.release]
+lto = true
+opt-level = "s"
+strip = true
