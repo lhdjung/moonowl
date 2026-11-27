@@ -14,8 +14,10 @@ Usage:
                                            as the reader's organiser does.
   moonowl compare A.pdf B.pdf REPORT.pdf   Compare two versions word by word and
                                            save the report as a PDF.
-  moonowl ocr IN.pdf OUT.pdf               Save a copy whose scanned pages have
-                                           searchable text.
+  moonowl ocr IN.pdf...                    Save a copy of each file whose scanned
+                                           pages have searchable text, beside it
+                                           as IN-searchable.pdf. Several files
+                                           are recognised at once.
   moonowl synctex IN.pdf PAGE X Y          The source line that made a place on a
                                            page (PAGE from 1, X and Y in points
                                            from the top left).
@@ -43,7 +45,11 @@ fn main() -> ExitCode {
         ["pages", input, pages, out] => pages_of(input, pages, out),
         ["split", "--chapters", input, folder] => split_at_chapters(input, folder),
         ["compare", a, b, out] => compare_into(a, b, out),
-        ["ocr", input, out] => recognise(input, out),
+        // One of several files, recognised by a copy of this program that
+        // `recognise_all` started.
+        ["ocr", ALONE, input] => recognise(input, true),
+        ["ocr", input] => recognise(input, false),
+        ["ocr", inputs @ ..] if !inputs.is_empty() => recognise_all(inputs),
         ["synctex", pdf, tex, line] => synctex_forward(pdf, tex, line),
         ["synctex", pdf, page, x, y] => synctex_inverse(pdf, page, x, y),
         _ => {
@@ -228,13 +234,22 @@ fn compare_into(a: &str, b: &str, out: &str) -> Result<String, String> {
 
 /// A copy of `input` with the words on its scanned pages written in, as
 /// `out`.
-fn recognise(input: &str, out: &str) -> Result<String, String> {
-    if std::path::Path::new(out).exists() {
+/// A copy of `input` with the words on its scanned pages written in, as
+/// `IN-searchable.pdf` beside it, the name the reader suggests. `alone` is
+/// for one file of several, which reads one page at a time, since the
+/// other files use the other cores.
+fn recognise(input: &str, alone: bool) -> Result<String, String> {
+    let out = arrange::beside(input, "searchable");
+    if std::path::Path::new(&out).exists() {
         return Err(format!("{out} is already there."));
     }
     let document = open(input)?;
     let read = document.stamp();
-    let found = ocr::recognise(&*document, &Default::default())?;
+    let found = match alone {
+        true => ocr::recognise_alone(&*document, &Default::default()),
+        false => ocr::recognise(&*document, &Default::default()),
+    }
+    .map_err(|why| format!("{input}: {why}"))?;
     document.release();
     let pages = (found.pages.iter())
         .filter(|(_, words)| !words.is_empty())
@@ -244,13 +259,57 @@ fn recognise(input: &str, out: &str) -> Result<String, String> {
         n => format!(" {n} page{} could not be read.", plural(n)),
     };
     if pages == 0 {
-        return Ok(format!("No text to recognise.{failed}"));
+        return Ok(format!("{input} has no text to recognise.{failed}"));
     }
-    ocr::write(input, read, &found.pages, out)?;
+    ocr::write(input, read, &found.pages, &out).map_err(|why| format!("{input}: {why}"))?;
     Ok(format!(
         "Recognised text on {pages} page{}, saved as {out}.{failed}",
         plural(pages)
     ))
+}
+
+/// Said to a copy of this program to recognise one file of several.
+const ALONE: &str = "--one-of-several";
+
+/// Each of `inputs` recognised by a copy of this program of its own, as
+/// many at once as the machine has cores. Processes rather than threads,
+/// because pdfium answers one call at a time in each process. What each
+/// copy says is passed on as it finishes.
+fn recognise_all(inputs: &[&str]) -> Result<String, String> {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    let program = std::env::current_exe().map_err(|e| format!("this program: {e}"))?;
+    let at_once = std::thread::available_parallelism()
+        .map_or(1, |cores| cores.get())
+        .clamp(1, 8);
+    let (next, failed) = (AtomicUsize::new(0), AtomicBool::new(false));
+    std::thread::scope(|scope| {
+        for _ in 0..at_once.min(inputs.len()) {
+            scope.spawn(|| {
+                while let Some(input) = inputs.get(next.fetch_add(1, Ordering::Relaxed)) {
+                    let ran = std::process::Command::new(&program)
+                        .args(["ocr", ALONE, input])
+                        .output();
+                    match ran {
+                        Ok(ran) => {
+                            print!("{}", String::from_utf8_lossy(&ran.stdout));
+                            eprint!("{}", String::from_utf8_lossy(&ran.stderr));
+                            if !ran.status.success() {
+                                failed.store(true, Ordering::Relaxed);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("moonowl: {input}: {e}");
+                            failed.store(true, Ordering::Relaxed);
+                        }
+                    }
+                }
+            });
+        }
+    });
+    match failed.load(Ordering::Relaxed) {
+        true => Err("Some files were not recognised.".into()),
+        false => Ok(String::new()),
+    }
 }
 
 fn synctex_inverse(pdf: &str, page: &str, x: &str, y: &str) -> Result<String, String> {
