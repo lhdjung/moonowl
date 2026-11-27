@@ -10,6 +10,8 @@ Usage:
   moonowl combine OUT.pdf IN.pdf...        Put the pages of several files into one.
   moonowl pages IN.pdf PAGES OUT.pdf       Save some pages as a new file, for
                                            example PAGES = 1-3,7,10-.
+  moonowl split --chapters IN.pdf FOLDER   Save each chapter as a file of its own,
+                                           as the reader's organiser does.
   moonowl compare A.pdf B.pdf REPORT.pdf   Compare two versions word by word and
                                            save the report as a PDF.
   moonowl ocr IN.pdf OUT.pdf               Save a copy whose scanned pages have
@@ -39,6 +41,7 @@ fn main() -> ExitCode {
     let done = match args.as_slice() {
         ["combine", out, inputs @ ..] if !inputs.is_empty() => combine(out, inputs),
         ["pages", input, pages, out] => pages_of(input, pages, out),
+        ["split", "--chapters", input, folder] => split_at_chapters(input, folder),
         ["compare", a, b, out] => compare_into(a, b, out),
         ["ocr", input, out] => recognise(input, out),
         ["synctex", pdf, tex, line] => synctex_forward(pdf, tex, line),
@@ -137,6 +140,67 @@ fn page_list(wanted: &str, count: usize) -> Result<Vec<usize>, String> {
     Ok(pages)
 }
 
+/// Each chapter of `input` written to `folder` as a file of its own, named
+/// as the reader names them: its number and its title. A page where one
+/// chapter ends and the next begins goes into both files.
+fn split_at_chapters(input: &str, folder: &str) -> Result<String, String> {
+    let document = open(input)?;
+    let chapters = arrange::chapters(&document.outline(), document.pages());
+    if chapters.len() < 2 {
+        return Err(format!(
+            "{input} has no chapters in its contents to split at."
+        ));
+    }
+    let cuts = arrange::cuts(&*document, chapters.clone());
+    document.release();
+    let digits = chapters.len().to_string().len();
+    let parts: Vec<(Vec<arrange::Sheet>, std::path::PathBuf)> = (chapters.iter().enumerate())
+        .map(|(at, chapter)| {
+            let mut pages = chapter.pages.clone();
+            if let Some((_, first, true)) = cuts.get(at + 1) {
+                pages.push(*first);
+            }
+            let sheets = (pages.into_iter())
+                .map(|page| arrange::Sheet {
+                    from: Some(input.to_string()),
+                    page,
+                    turn: 0,
+                })
+                .collect();
+            let mut title = arrange::file_safe(&chapter.title);
+            if title.is_empty() {
+                title = "Chapter".into();
+            }
+            let name = format!("{:0digits$}-{title}.pdf", at + 1);
+            (sheets, std::path::Path::new(folder).join(name))
+        })
+        .collect();
+    if let Some((_, taken)) = parts.iter().find(|(_, to)| to.exists()) {
+        return Err(format!("{} is already there.", taken.display()));
+    }
+    std::fs::create_dir_all(folder).map_err(|e| format!("{folder}: {e}"))?;
+    let mut links_lost = false;
+    for (written, (sheets, to)) in parts.iter().enumerate() {
+        let to = to.to_string_lossy();
+        match arrange::assemble_new(None, sheets, arrange::Layout::One, &to, &[]) {
+            Ok(lost) => links_lost |= lost,
+            // No half of the set is left behind.
+            Err(said) => {
+                for (_, done) in &parts[..written] {
+                    let _ = std::fs::remove_file(done);
+                }
+                return Err(said);
+            }
+        }
+    }
+    let count = parts.len();
+    let mut said = format!("Saved {count} chapters in {folder}.");
+    if links_lost {
+        said += " Some links led to other chapters, and lead nowhere now.";
+    }
+    Ok(said)
+}
+
 /// `a` and `b` compared word by word, and the report saved as `out`.
 fn compare_into(a: &str, b: &str, out: &str) -> Result<String, String> {
     if std::path::Path::new(out).exists() {
@@ -223,6 +287,34 @@ fn plural(count: usize) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::page_list;
+
+    /// Three chapters. The first ends above the second's heading on page 3,
+    /// so page 3 is in both files. The third begins under nothing but the
+    /// running head on page 5, so page 5 is in its file alone.
+    #[test]
+    fn a_document_is_split_at_its_chapters() {
+        let book = moonowl_core::fixture::midpage_chapters_pdf();
+        let folder = std::env::temp_dir().join(format!("moonowl-cli-split-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        let said = super::split_at_chapters(&book, folder.to_str().unwrap()).unwrap();
+        assert!(said.starts_with("Saved 3 chapters"), "{said}");
+        let pages = |name: &str| {
+            moonowl_core::render::open(folder.join(name).to_str().unwrap())
+                .unwrap()
+                .pages()
+        };
+        assert_eq!(
+            [
+                pages("1-Opening.pdf"),
+                pages("2-Middle.pdf"),
+                pages("3-End.pdf")
+            ],
+            [3, 2, 2]
+        );
+        // A second time, nothing is written over.
+        assert!(super::split_at_chapters(&book, folder.to_str().unwrap()).is_err());
+        let _ = std::fs::remove_dir_all(&folder);
+    }
 
     #[test]
     fn pages_are_read_as_a_reader_types_them() {

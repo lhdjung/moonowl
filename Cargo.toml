@@ -15,6 +15,10 @@ path = "src/main.rs"
 # path rather than a git dependency while both are worked on together.
 moonowl-core = { path = "../moonowl/core" }
 
+[dev-dependencies]
+# The reader's test documents, for the tests.
+moonowl-core = { path = "../moonowl/core", features = ["harness"] }
+
 [profile.release]
 lto = true
 opt-level = "s"

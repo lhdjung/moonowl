@@ -1,7 +1,8 @@
 # moonowl
 
 What the [Moonowl](../moonowl) reader does to documents, from the command
-line: combining files, saving some pages as a new file, comparing two
+line: combining files, saving some pages as a new file, splitting a book
+at its chapters, comparing two
 versions with a PDF report, recognising text on scanned pages, and SyncTeX
 lookups. Every command is a thin layer over `moonowl-core`, the same code
 the reader runs.
@@ -9,6 +10,7 @@ the reader runs.
 ```sh
 moonowl combine all.pdf one.pdf two.pdf
 moonowl pages book.pdf 1-3,7,10- excerpt.pdf
+moonowl split --chapters book.pdf chapters/
 moonowl compare draft-1.pdf draft-2.pdf changes.pdf
 moonowl ocr scan.pdf scan-searchable.pdf
 moonowl synctex paper.pdf 3 120 400        # → paper.tex:57
