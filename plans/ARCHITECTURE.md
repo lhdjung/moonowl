@@ -34,6 +34,14 @@ clean split, though, and it is worth holding on to:
 | **Platform glue** | the bits that are AppKit / Win32 | `dock.rs`, `openfiles.rs`, `tabs.rs`, `print.rs` |
 | **Test rig** | the whole UI driven headlessly | `harness.rs`, `fixture.rs`, `stats.rs`, `tests/` |
 
+The layers also decide which crate a file is in. The document engine,
+document writing, persistence, `emit.rs`, `fixture.rs` and `stats.rs` are
+`moonowl-core`, in `core/src/`, which has no interface crate in it. Everything
+else is the app, in `src/`. The app re-exports each core module under its own
+name, so `crate::layout` reads the same in both, and `cargo test -p
+moonowl-core` runs the core's unit tests in seconds without building the
+interface.
+
 ---
 
 ## 2. The stack under the app, for people new to Dioxus Native
@@ -584,7 +592,7 @@ old file's permissions, ACL and extended attributes put on the new one first.
 | file | module | contents |
 | --- | --- | --- |
 | `settings.toml` | `settings.rs` | flat key/value; the defaults table is also the whitelist; `set_many` rewrites only named keys, under a lock |
-| `themes/*.toml` | `theme.rs`, `shelf.rs` | one file per theme. Built-ins are embedded (`build.rs` globs and *validates* `themes/` at compile time) and rewritten on every run; user themes are never touched, except that `save` renames a file the app itself named when its theme is renamed |
+| `themes/*.toml` | `theme.rs`, `shelf.rs` | one file per theme. Built-ins are embedded (`core/build.rs` globs and *validates* `themes/` at compile time) and rewritten on every run; user themes are never touched, except that `save` renames a file the app itself named when its theme is renamed |
 | `palettes/*.toml` | `palettes.rs`, `shelf.rs` | one file per highlight palette (a name and six colours), kept by the same rules as themes: `shelf.rs` is those rules, generic over `Kept` |
 | `library.toml` | `library.rs` | per-document entries (last place, title, marks, trimmed margins, markup journal) and the `open` restore list |
 | `keys.toml` | `keys.rs` | key overrides; not watched — there is a Reload button |
