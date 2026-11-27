@@ -17,7 +17,10 @@ description = "Moonowl's documents, settings and themes, with no interface"
 harness = []
 
 [dependencies]
-pdfium-render = { version = "0.9.3", default-features = false, features = ["pdfium_latest", "thread_safe"] }
+# Exactly this version: each pdfium-render release asks for the functions of
+# a newer pdfium, and the library is downloaded at the tag that matches it
+# (scripts/pdfium.sh). A newer one fails to load the library at all.
+pdfium-render = { version = "=0.9.3", default-features = false, features = ["pdfium_latest", "thread_safe"] }
 # What pdfium cannot write: a new file's resource dictionaries, cut down to
 # what each page draws. See `arrange::slim`. Its default features are a clock
 # and a thread pool, and neither is wanted.
