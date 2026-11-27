@@ -21,6 +21,8 @@ Features include:
 - Hide the menu bar for undistracted reading
 - Use keybinds for fast navigation (optional)
 
+See [everything Moonowl can do](plans/ABOUT.md).
+
 Moonowl is fast and lean: Rust throughout, with pdfium rendering the pages. The app is just ~22 MB, PDF engine included.
 Respect for computer resources as well as for user experience.
 
