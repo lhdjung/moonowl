@@ -829,9 +829,8 @@ pub(super) fn mark_menu_rows(
             class: "menu-item mark-remove",
             "data-item": "remove",
             onclick: move |_| {
-                if !viewer.write().remove_markup(&key) {
-                    viewer.write().close_mark();
-                }
+                viewer.write().remove_markup(&key);
+                viewer.write().close_mark();
             },
             Icon { name: "trash", stroke: ink.clone() }
             span { class: "menu-label", "Remove highlight" }
