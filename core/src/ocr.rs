@@ -78,10 +78,26 @@ pub fn recognise(document: &dyn PageSource, stop: &AtomicBool) -> Result<Found, 
     recognise_with(document, stop, words_in)
 }
 
+/// [`recognise`], one page at a time, for a process that is one of several
+/// recognising other documents at once, which use the cores already.
+pub fn recognise_alone(document: &dyn PageSource, stop: &AtomicBool) -> Result<Found, String> {
+    recognise_on(document, stop, 1, words_in)
+}
+
 /// [`recognise`], with the engine named, for the tests.
 pub fn recognise_with(
     document: &dyn PageSource,
     stop: &AtomicBool,
+    engine: impl Fn(&[u8], u32, u32, f64, &AtomicBool) -> Result<Vec<Word>, String> + Sync,
+) -> Result<Found, String> {
+    recognise_on(document, stop, engines(), engine)
+}
+
+/// [`recognise_with`], reading on `threads` threads.
+fn recognise_on(
+    document: &dyn PageSource,
+    stop: &AtomicBool,
+    threads: usize,
     engine: impl Fn(&[u8], u32, u32, f64, &AtomicBool) -> Result<Vec<Word>, String> + Sync,
 ) -> Result<Found, String> {
     // Whether the reader stopped, or the app is ending. This is asked
@@ -109,7 +125,7 @@ pub fn recognise_with(
     let take = std::sync::Mutex::new(take);
     std::thread::scope(|scope| -> Result<(), String> {
         let (answer, answers) = std::sync::mpsc::channel::<Read>();
-        for _ in 0..engines() {
+        for _ in 0..threads.max(1) {
             let (take, answer, engine, halted, missing) =
                 (&take, answer.clone(), &engine, &halted, &missing);
             scope.spawn(move || loop {
