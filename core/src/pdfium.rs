@@ -80,7 +80,7 @@ pub(crate) fn library_when_free() -> Held {
 
 /// The one pdfium instance, created on first use and kept for the life of the
 /// process. Leaked deliberately: every document and page borrows from it.
-pub(crate) fn pdfium() -> Result<&'static Pdfium, String> {
+pub fn pdfium() -> Result<&'static Pdfium, String> {
     static INSTANCE: Mutex<Option<&'static Pdfium>> = Mutex::new(None);
     let mut held = INSTANCE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(instance) = *held {
