@@ -1,10 +1,23 @@
 //! `moonowl ocr` with several files, run as the program itself, since each
 //! file is recognised by a copy of it.
 
+/// Whether this machine can recognise text: Vision on macOS, Tesseract
+/// elsewhere, which CI does not install.
+fn engine() -> bool {
+    cfg!(target_os = "macos")
+        || std::process::Command::new("tesseract")
+            .arg("--version")
+            .output()
+            .is_ok()
+}
+
 /// **Every file gets its searchable copy beside it**, and none is written
 /// over when the command is run again.
 #[test]
 fn several_files_are_recognised_at_once() {
+    if !engine() {
+        return;
+    }
     let dir = std::env::temp_dir().join(format!("moonowl-cli-ocr-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -48,6 +61,9 @@ fn several_files_are_recognised_at_once() {
 /// one file only.
 #[test]
 fn a_folder_and_the_names_of_the_copies() {
+    if !engine() {
+        return;
+    }
     let dir = std::env::temp_dir().join(format!("moonowl-cli-folder-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let (scans, copies) = (dir.join("scans"), dir.join("copies"));
@@ -86,6 +102,28 @@ fn a_folder_and_the_names_of_the_copies() {
         String::from_utf8_lossy(&ran.stderr)
     );
     assert!(named.exists());
+
+    // Run again with a new scan in the folder: only the new one is read.
+    std::fs::copy(&scan, scans.join("c.pdf")).unwrap();
+    let skipping = run(&[
+        scans.to_str().unwrap(),
+        "--into",
+        copies.to_str().unwrap(),
+        "--skip-existing",
+    ]);
+    assert!(
+        skipping.status.success(),
+        "{}",
+        String::from_utf8_lossy(&skipping.stderr)
+    );
+    let said = String::from_utf8_lossy(&skipping.stdout);
+    assert!(said.contains("c-searchable.pdf"), "{said}");
+    assert!(said.contains("Skipped 2 files"), "{said}");
+    let again = run(&[scans.to_str().unwrap(), "--into", copies.to_str().unwrap()]);
+    assert!(
+        !again.status.success(),
+        "without it, a copy there is refused"
+    );
 
     let two = run(&[scans.to_str().unwrap(), "--to", "x.pdf"]);
     assert!(!two.status.success());

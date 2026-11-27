@@ -21,6 +21,9 @@ Usage:
                                            recognised at once.
       --to OUT.pdf                         The copy's name, for one file.
       --into FOLDER                        Where the copies go, for any number.
+      --skip-existing                      Pass over files that have a copy
+                                           already, as after new scans are added
+                                           to a folder.
   moonowl synctex IN.pdf PAGE X Y          The source line that made a place on a
                                            page (PAGE from 1, X and Y in points
                                            from the top left).
@@ -243,12 +246,13 @@ fn ocr_command(args: &[&str]) -> Result<String, String> {
     if let [ALONE, input, out] = args {
         return recognise(input, out, true);
     }
-    let (mut inputs, mut to, mut into) = (Vec::new(), None, None);
+    let (mut inputs, mut to, mut into, mut skip) = (Vec::new(), None, None, false);
     let mut given = args.iter();
     while let Some(&arg) = given.next() {
         match arg {
             "--to" => to = Some(*given.next().ok_or("--to needs the name of the copy.")?),
             "--into" => into = Some(*given.next().ok_or("--into needs a folder.")?),
+            "--skip-existing" => skip = true,
             flag if flag.starts_with("--") => {
                 return Err(format!("{flag} is not an option of ocr."))
             }
@@ -287,10 +291,25 @@ fn ocr_command(args: &[&str]) -> Result<String, String> {
     if let Some((_, out)) = jobs.iter().find(|(_, out)| !taken.insert(out)) {
         return Err(format!("Two files would both be saved as {out}."));
     }
-    match jobs.as_slice() {
-        [(input, out)] => recognise(input, out, false),
-        _ => recognise_all(&jobs),
-    }
+    let count = jobs.len();
+    let jobs: Vec<(String, String)> = (jobs.into_iter())
+        .filter(|(_, out)| !(skip && std::path::Path::new(out).exists()))
+        .collect();
+    let skipped = match count - jobs.len() {
+        0 => String::new(),
+        1 => "Skipped 1 file that has a copy already.".into(),
+        n => format!("Skipped {n} files that have a copy already."),
+    };
+    let said = match jobs.as_slice() {
+        [] => String::new(),
+        [(input, out)] => recognise(input, out, false)?,
+        _ => recognise_all(&jobs)?,
+    };
+    Ok([said, skipped]
+        .into_iter()
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 /// The PDFs `path` names: the file itself, or every PDF directly in a
