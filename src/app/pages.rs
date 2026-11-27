@@ -56,40 +56,10 @@ impl Viewer {
         }
     }
 
-    /// The document's chapters, read off its contents: each heading at the
-    /// top level, with the pages from its own to the page before the next
-    /// one's. Where the top level has one heading, usually the document's
-    /// title, the headings under it are the chapters. Pages before the
-    /// first chapter are one more, "Front matter". Whether a chapter also
-    /// takes the page where the next one begins is decided when it is
-    /// saved; see [`crate::arrange::ends_there`].
+    /// The document's chapters, read off its contents. See
+    /// [`crate::arrange::chapters`].
     pub fn chapters(&self) -> Vec<crate::arrange::Chapter> {
-        let top = match self.headings.iter().filter(|h| h.depth == 0).count() {
-            1 => 1,
-            _ => 0,
-        };
-        let mut starts: Vec<(usize, &str, Option<crate::render::Pin>)> = (self.headings.iter())
-            .filter(|heading| heading.depth == top)
-            .filter_map(|heading| Some((heading.page?, heading.title.as_str(), heading.spot)))
-            .collect();
-        // In page order, and one chapter to a page: two headings on one
-        // page are one chapter, under the first one's name.
-        starts.sort_by_key(|(page, _, _)| *page);
-        starts.dedup_by_key(|(page, _, _)| *page);
-        if starts.first().is_some_and(|(page, _, _)| *page > 1) {
-            starts.insert(0, (1, "Front matter", None));
-        }
-        let end = self.document.pages() + 1;
-        (starts.iter().enumerate())
-            .map(|(at, (from, title, _))| {
-                let next = starts.get(at + 1);
-                crate::arrange::Chapter {
-                    title: title.to_string(),
-                    pages: (*from..next.map_or(end, |(next, _, _)| *next)).collect(),
-                    next: next.and_then(|(page, _, spot)| Some((*page, (*spot)?))),
-                }
-            })
-            .collect()
+        crate::arrange::chapters(&self.headings, self.document.pages())
     }
 
     /// "Save the page as a picture…": asks where page `page` (one-based)
@@ -713,32 +683,6 @@ pub(super) const NO_CHAPTERS: &str =
 const NO_TEXT: &str = "This document has no text to save. A scan has none until it has \
                        been through text recognition.";
 
-/// A heading as part of a file name: without the characters some systems
-/// do not allow in one, with a dash for each run of spaces, and not too
-/// long. A name may have at most 255 bytes on most systems, so 80
-/// characters are also held to 200 bytes, which leaves room for the rest of
-/// the name.
-pub(super) fn file_safe(title: &str) -> String {
-    let kept: String = (title.chars())
-        .map(|c| {
-            if c.is_control() || "/\\:*?\"<>|".contains(c) {
-                ' '
-            } else {
-                c
-            }
-        })
-        .collect();
-    let words: Vec<&str> = kept.split_whitespace().collect();
-    let mut name = words.join("-");
-    if let Some((cut, _)) = name.char_indices().nth(80) {
-        name.truncate(cut);
-    }
-    while name.len() > 200 {
-        name.pop();
-    }
-    name.trim_end_matches(['.', '-']).to_string()
-}
-
 /// Whether two paths name the same file, as far as the disk can say.
 pub(super) fn same_file(one: &str, other: &str) -> bool {
     let real = |path: &str| std::fs::canonicalize(path).unwrap_or_else(|_| path.into());
@@ -850,20 +794,5 @@ impl Viewer {
                 Err(said) => viewer.notice = said,
             },
         );
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn a_file_name_is_held_to_its_length_in_bytes() {
-        let emoji = "\u{1f989}".repeat(80);
-        let name = super::file_safe(&emoji);
-        assert!(
-            name.len() <= 200 && name.len().is_multiple_of(4),
-            "{}",
-            name.len()
-        );
-        assert_eq!(super::file_safe("A/B: c"), "A-B-c");
     }
 }

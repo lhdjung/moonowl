@@ -564,8 +564,8 @@ since the text changes its pages.
   A half is the size most of the pages are.
 - New files are written with `atomic_write`, never through `write_step`.
   File dialogs go through the `Choose` door.
-- **Split at each chapter** (the organiser's Split menu, `Viewer::chapters`,
-  `arrange::ends_there`, `Organiser::split_at`) starts a new file at each
+- **Split at each chapter** (the organiser's Split menu, `arrange::chapters`,
+  `arrange::cuts`, `Organiser::split_at`) starts a new file at each
   chapter, and the reader sees the cuts before anything is written.
   - The chapters are the headings at the top level of the contents. Where
     the top level has only one heading, usually the document's title, the
