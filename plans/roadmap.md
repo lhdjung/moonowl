@@ -45,6 +45,16 @@ reasoning behind each built feature, is `plans/page-edits.md` at commit
 
 ## Additions to what is built
 
+- **Notes in the highlights export**: sticky notes and text boxes from
+  other programs, with their page and author. See `pdfmt-assessment.md`.
+- **Choosing what a clean copy leaves out.** `markup::Leaving` can take
+  out highlights or notes alone; the menu takes out both.
+- **More in `moonowl-cli`**, from `pdfmt-assessment.md`:
+  `moonowl annotations list|export|remove` over `markup::copy_without`,
+  `split --ranges` with a page in several files (a cover in every part),
+  an `<area> <action>` grammar with help for each area, and shell
+  completions.
+
 - **Following a reference that has no link, through the link preview.**
   ⌘-click follows "[12]" or "Figure 3" (`Viewer::follow_reference`);
   resting on such a phrase could show where it leads in the same card a
