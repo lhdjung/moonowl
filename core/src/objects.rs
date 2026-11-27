@@ -1987,16 +1987,33 @@ mod tests {
         assert!(!certification_allows(&lost, Update::Annotations));
     }
 
+    #[cfg(unix)]
+    /// A script at `path` that runs `body`, written by another process. On
+    /// Linux a program cannot be started while any process holds it open for
+    /// writing, and a test thread that starts a process while this one writes
+    /// the file would hold it.
+    fn write_script(path: &std::path::Path, body: &str) {
+        use std::io::Write;
+        let mut sh = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("cat > \"$1\" && chmod 755 \"$1\"")
+            .arg("sh")
+            .arg(path)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        sh.stdin.take().unwrap().write_all(body.as_bytes()).unwrap();
+        assert!(sh.wait().unwrap().success());
+    }
+
     /// A helper that answers nonsense is ended rather than waited on. This
     /// one sends back what it is sent, so it is still writing the document
     /// into a full pipe when its answer fails to read.
     #[cfg(unix)]
     #[test]
     fn a_helper_that_answers_nonsense_is_ended() {
-        use std::os::unix::fs::PermissionsExt;
         let helper = std::env::temp_dir().join(format!("moonowl-echo-{}", std::process::id()));
-        std::fs::write(&helper, "#!/bin/sh\nexec cat\n").unwrap();
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_script(&helper, "#!/bin/sh\nexec cat\n");
         let document = vec![0; 4 * 1024 * 1024];
         let answer = apart_with(
             &helper,
@@ -2014,12 +2031,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_helper_that_claims_a_huge_answer_is_not_believed() {
-        use std::os::unix::fs::PermissionsExt;
         let helper = std::env::temp_dir().join(format!("moonowl-huge-{}", std::process::id()));
         let script =
             "#!/bin/sh\ncat > /dev/null\nprintf '\\377\\377\\377\\377\\377\\377\\377\\177'\n";
-        std::fs::write(&helper, script).unwrap();
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_script(&helper, script);
         let answer = apart_with(
             &helper,
             &Ask::Incremental(Update::Other),
@@ -2036,7 +2051,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_helper_that_claims_a_huge_document_is_not_believed() {
-        use std::os::unix::fs::PermissionsExt;
         let helper = std::env::temp_dir().join(format!("moonowl-long-{}", std::process::id()));
         let answering = |length: &str| {
             let script = format!(
@@ -2044,8 +2058,7 @@ mod tests {
                  printf '\\011\\000\\000\\000\\000\\000\\000\\000\"Updated\"'\n\
                  printf '{length}%%PDF-'\n"
             );
-            std::fs::write(&helper, script).unwrap();
-            std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+            write_script(&helper, &script);
             let asked = Ask::Incremental(Update::Other);
             apart_with(&helper, &asked, &[b"%PDF-"], PATIENCE, false)
         };
@@ -2062,10 +2075,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_helper_that_takes_too_long_is_ended() {
-        use std::os::unix::fs::PermissionsExt;
         let helper = std::env::temp_dir().join(format!("moonowl-slow-{}", std::process::id()));
-        std::fs::write(&helper, "#!/bin/sh\nexec sleep 60\n").unwrap();
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_script(&helper, "#!/bin/sh\nexec sleep 60\n");
         let started = std::time::Instant::now();
         let patience = std::time::Duration::from_millis(200);
         let answer = apart_with(

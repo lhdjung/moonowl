@@ -125,7 +125,6 @@ fn tesseract_finds_the_same_words() {
 #[cfg(unix)]
 #[test]
 fn a_tesseract_that_does_not_answer_is_given_up_on() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = std::env::temp_dir().join(format!("moonowl-tesseract-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     // Grey noise, whose picture is larger than a pipe holds, so that one
@@ -145,8 +144,7 @@ fn a_tesseract_that_does_not_answer_is_given_up_on() {
     ] {
         let program = dir.join(name).join("tesseract");
         std::fs::create_dir_all(program.parent().unwrap()).unwrap();
-        std::fs::write(&program, script).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_script(&program, script);
         let began = std::time::Instant::now();
         let answer = ocr::tesseract_at(
             program.to_str().unwrap(),
@@ -595,7 +593,6 @@ fn a_stop_during_the_last_page_saves_no_copy() {
 #[cfg(unix)]
 #[test]
 fn a_tesseract_given_up_on_ends_what_it_started() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = std::env::temp_dir().join(format!("moonowl-tesseract-group-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let started = dir.join("started");
@@ -604,8 +601,7 @@ fn a_tesseract_given_up_on_ends_what_it_started() {
         "#!/bin/sh\nsleep 30 &\necho $! > '{}'\nwait\n",
         started.display()
     );
-    std::fs::write(&program, script).unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    write_script(&program, &script);
     // The limit has to leave the script time to start and write down its
     // child, even on a machine busy with other tests.
     let answer = ocr::tesseract_at(
@@ -653,4 +649,23 @@ fn pages_are_read_at_once() {
     .unwrap();
     assert_eq!(found.pages.len(), 5);
     assert!(most.load(Ordering::SeqCst) > 1, "one page at a time");
+}
+
+#[cfg(unix)]
+/// A script at `path` that runs `body`, written by another process. On
+/// Linux a program cannot be started while any process holds it open for
+/// writing, and a test thread that starts a process while this one writes
+/// the file would hold it.
+fn write_script(path: &std::path::Path, body: &str) {
+    use std::io::Write;
+    let mut sh = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("cat > \"$1\" && chmod 755 \"$1\"")
+        .arg("sh")
+        .arg(path)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    sh.stdin.take().unwrap().write_all(body.as_bytes()).unwrap();
+    assert!(sh.wait().unwrap().success());
 }
