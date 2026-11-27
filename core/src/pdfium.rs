@@ -32,7 +32,7 @@ static LIBRARY: Mutex<()> = Mutex::new(());
 /// How many threads are waiting for [`LIBRARY`] through [`library`].
 static WAITING: AtomicUsize = AtomicUsize::new(0);
 
-pub(crate) fn library() -> Held {
+pub fn library() -> Held {
     WAITING.fetch_add(1, Ordering::SeqCst);
     let held = LIBRARY.lock().unwrap_or_else(|e| e.into_inner());
     WAITING.fetch_sub(1, Ordering::SeqCst);
@@ -40,7 +40,7 @@ pub(crate) fn library() -> Held {
 }
 
 /// [`LIBRARY`], held. Letting go of it wakes [`library_when_free`].
-pub(crate) struct Held(Option<std::sync::MutexGuard<'static, ()>>);
+pub struct Held(Option<std::sync::MutexGuard<'static, ()>>);
 
 impl Drop for Held {
     fn drop(&mut self) {
@@ -130,7 +130,7 @@ fn library_dir() -> String {
         return dir;
     }
     if cfg!(debug_assertions) {
-        return format!("{}/pdfium/lib", env!("CARGO_MANIFEST_DIR"));
+        return format!("{}/../pdfium/lib", env!("CARGO_MANIFEST_DIR"));
     }
     exe.map(|dir| dir.to_string_lossy().into_owned())
         .unwrap_or_default()

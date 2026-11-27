@@ -463,7 +463,7 @@ fn tell(dir: &Path, event: crate::emit::Event) {
 /// scrolling is not told every 700ms. `what` is the file or folder written: a
 /// write to the library that succeeds says nothing about the settings file the
 /// disk refused.
-pub(crate) fn refused<T>(dir: &Path, what: &'static str, written: Result<T, String>) {
+pub fn refused<T>(dir: &Path, what: &'static str, written: Result<T, String>) {
     static SAID: OnceLock<
         std::sync::Mutex<std::collections::HashMap<(PathBuf, &'static str), String>>,
     > = OnceLock::new();
@@ -706,7 +706,7 @@ impl Store {
 
     /// One of the find bar's switches, written alone and said to every
     /// window, whose own copy of the pair would otherwise write the other
-    /// one back as it was. See [`crate::app::Viewer::set_find_options`].
+    /// one back as it was. See `Viewer::set_find_options` in the app.
     pub fn set_find_switch(&mut self, key: &str, on: bool) {
         self.set(vec![(key.into(), json!(on))]);
         tell(&self.dir, crate::emit::Event::SettingsChanged);
@@ -1078,7 +1078,7 @@ impl Store {
     /// last thing read should be.
     ///
     /// What *is* written happens above this, in
-    /// [`crate::app::Viewer::close_document`]: the reader's place in the
+    /// `Viewer::close_document` in the app: the reader's place in the
     /// document being put down, through `remember`, while the store still
     /// points at it.
     pub fn closed(&mut self) {
@@ -1641,7 +1641,7 @@ mod tests {
             .iter()
             .map(|theme| theme.id.as_str())
             .collect();
-        let order: Vec<&str> = include_str!("../themes/order").lines().collect();
+        let order: Vec<&str> = include_str!("../../themes/order").lines().collect();
         assert_eq!(ids, order);
         // The light themes come first, so that the Next theme key and the
         // Settings page go through the built-ins in the order the menu lists

@@ -107,7 +107,7 @@ pub enum Event {
     OpenDocumentBeside(String),
     OpenDocumentInTab(String),
     /// A file chosen for a page edit, and what for. See `app::Choose`.
-    Chosen(crate::app::Choosing, Vec<String>),
+    Chosen(Choosing, Vec<String>),
     /// A theme file chosen under Appearance.
     ImportTheme(String),
     ExportTheme(String),
@@ -455,6 +455,75 @@ pub fn after(delay: std::time::Duration, post: Post, event: Event) {
     due.push((std::time::Instant::now() + delay, post, news));
     drop(due);
     clock.ring.notify_one();
+}
+
+/// What a file is chosen for, carried through the dialog so the answer knows
+/// what to do with it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Choosing {
+    /// Where the highlights and their comments are written. The extension
+    /// chosen decides the format. See `Viewer::export_highlights` in the app.
+    ExportHighlights,
+    /// Where this page (one-based) is saved as a picture.
+    SavePicture(usize),
+    /// Where the text of every page is saved.
+    SaveText,
+    /// Where a copy with the annotations drawn into the pages is saved.
+    SaveFlattened,
+    /// Where a copy with the text of its scanned pages recognised is saved.
+    SaveRecognised,
+    /// Where the file the document carries in this place, with this name,
+    /// is saved.
+    SaveAttachment(crate::objects::Carried, String),
+    /// Which files the organiser takes pages from.
+    AddFiles,
+    /// Where the organiser's pages are saved as one new file.
+    SaveArranged,
+    /// Which folder the organiser's files go into, when there are several.
+    SaveParts,
+    /// Where the comparison is saved as a report. See
+    /// `Viewer::save_report` in the app.
+    SaveReport,
+    /// A file for A (0) or B (1) in the comparison window. See
+    /// `Viewer::choose_report_side` in the app.
+    ReportFile(usize),
+}
+
+impl Choosing {
+    /// Whether the dialog asks for several files rather than one.
+    pub fn several(&self) -> bool {
+        matches!(self, Choosing::AddFiles)
+    }
+
+    /// What the dialog asks, where it says more than which file.
+    pub fn title(&self) -> Option<&'static str> {
+        match self {
+            Choosing::ReportFile(0) => Some("Choose the document to compare as A"),
+            Choosing::ReportFile(_) => Some("Choose the document to compare as B"),
+            _ => None,
+        }
+    }
+
+    /// Whether the dialog asks for a folder rather than a file.
+    pub fn folder(&self) -> bool {
+        matches!(self, Choosing::SaveParts)
+    }
+
+    /// The kinds of file the dialog offers, each a name and its extensions.
+    pub fn filters(&self) -> &'static [(&'static str, &'static [&'static str])] {
+        match self {
+            Choosing::ExportHighlights => &[
+                ("Markdown", &["md"]),
+                ("Plain text", &["txt"]),
+                ("JSON", &["json"]),
+            ],
+            Choosing::SavePicture(_) => &[("PNG picture", &["png"])],
+            Choosing::SaveText => &[("Plain text", &["txt"])],
+            Choosing::SaveAttachment(..) => &[],
+            Choosing::AddFiles => &[("PDF or picture", &["pdf", "jpg", "jpeg", "png"])],
+            _ => &[("PDF", &["pdf"])],
+        }
+    }
 }
 
 #[cfg(test)]

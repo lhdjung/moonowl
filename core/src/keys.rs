@@ -25,7 +25,7 @@ use crate::atomic_write;
 /// The commented file a new install gets. Every action, with the keys it
 /// ships with, all of it switched off — so the file explains itself and
 /// changing one key is uncommenting one line.
-const TEMPLATE: &str = include_str!("../keys.toml");
+const TEMPLATE: &str = include_str!("../../keys.toml");
 
 pub const FILE: &str = "keys.toml";
 

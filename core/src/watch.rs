@@ -453,7 +453,7 @@ pub(crate) fn whole(path: &Path) -> Option<Mark> {
 
 /// [`whole`] for several files at once, with one wait for all of them, so
 /// that twenty files chosen together wait once and not twenty times.
-pub(crate) fn all_whole(paths: &[&Path]) -> Vec<bool> {
+pub fn all_whole(paths: &[&Path]) -> Vec<bool> {
     let looked: Vec<_> = paths.iter().map(|path| looks_whole(path)).collect();
     if looked.iter().any(Option::is_some) {
         std::thread::sleep(STEADY);

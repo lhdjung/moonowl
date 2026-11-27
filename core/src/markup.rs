@@ -1100,8 +1100,7 @@ const KEEPS_ITS_SIGNATURE: &str = "This document carries a digital signature, \
 pub const CERTIFIED_BY: &str = "The author of this document certified it";
 
 /// Said when a signature locks the field being filled in.
-pub(crate) const LOCKED: &str =
-    "A signature in this document locks that field, so it was not changed. \
+pub const LOCKED: &str = "A signature in this document locks that field, so it was not changed. \
                       Changing it would make the signature invalid.";
 
 /// Said when a document's certification does not allow the change.
@@ -1848,13 +1847,13 @@ impl Space {
 
     /// A point of the drawn page in SyncTeX's space: points from the top
     /// left corner of the media box, before `/Rotate`, as TeX placed it.
-    pub(crate) fn tex_point(&self, x: f64, y: f64) -> (f64, f64) {
+    pub fn tex_point(&self, x: f64, y: f64) -> (f64, f64) {
         let (x, y) = self.point_up(x, y);
         (x - self.media_left, self.media_top - y)
     }
 
     /// A point in SyncTeX's space, on the page as drawn.
-    pub(crate) fn drawn_point(&self, x: f64, y: f64) -> (f64, f64) {
+    pub fn drawn_point(&self, x: f64, y: f64) -> (f64, f64) {
         self.point_down(x + self.media_left, self.media_top - y)
     }
 

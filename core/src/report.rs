@@ -76,7 +76,7 @@ impl File {
         }
     }
 
-    pub(crate) fn label(&self, page: usize) -> String {
+    pub fn label(&self, page: usize) -> String {
         match self.labels.get(page.wrapping_sub(1)) {
             Some(label) if !label.is_empty() => label.clone(),
             _ => page.to_string(),
@@ -835,7 +835,7 @@ fn list(
 }
 
 /// The items in quotes, as “a” and “b”, or “a”, “b”, and “c”.
-pub(crate) fn in_a_list(items: &[String]) -> String {
+pub fn in_a_list(items: &[String]) -> String {
     let quoted: Vec<String> = (items.iter())
         .map(|item| format!("\u{201c}{item}\u{201d}"))
         .collect();
@@ -1679,7 +1679,7 @@ mod tests {
     fn the_font_keeps_the_plain_forms_it_shows() {
         let font = std::fs::read(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/tests/fonts/DejaVuSans.ttf"
+            "/../tests/fonts/DejaVuSans.ttf"
         ))
         .unwrap();
         let face = Type {

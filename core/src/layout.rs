@@ -134,7 +134,7 @@ pub const MOUNTED_MOST: usize = 256;
 /// The ceiling on one page's bitmap, because a page drawn at more pixels than
 /// the screen can show is bytes nobody reads.
 /// Past it the page is stretched, and what is on screen is drawn sharp over
-/// it — see [`crate::page::PageWidget::detail`].
+/// it — see `PageWidget::detail` in the app.
 pub const MAX_PIXELS: f64 = 12_000_000.0;
 
 /// PDF points to CSS pixels, so that "100%" is the size a browser shows a
@@ -214,7 +214,7 @@ pub struct Layout {
     /// written down and does not survive the run, as in Preview, Acrobat and
     /// Sumatra. Within a run it stays with the *window*, like the fit and the
     /// zoom beside it: a document opened into a turned window is turned. See
-    /// [`crate::app::Viewer::open_here`]. It is added to the page's own
+    /// `Viewer::open_here` in the app. It is added to the page's own
     /// rotation by the renderer, because a page that says it is printed
     /// sideways has already been turned once and the reader is asking for one
     /// more.
@@ -771,7 +771,7 @@ impl Layout {
     /// A page narrower than the window is centred in it, and a page wider
     /// than the window scrolls. The pages are placed absolutely against a box
     /// this file sizes, so both are arithmetic here. See
-    /// [`crate::app::Viewer::across`].
+    /// `Viewer::across` in the app.
     pub fn max_scroll_x(&self) -> f64 {
         (self.content_width - self.viewport.width).max(0.0)
     }
